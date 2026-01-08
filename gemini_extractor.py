@@ -6,18 +6,19 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 
-
 # =========================
 # LOAD ENV (Lambda-safe)
 # =========================
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+MODEL_NAME = os.getenv("MODEL_NAME")
+
 if not GEMINI_API_KEY:
     raise EnvironmentError("GEMINI_API_KEY not found in environment variables")
 
 
-# =========================
+
 # FINAL DATABASE SCHEMA
 # =========================
 FINAL_SCHEMA = {
@@ -25,11 +26,14 @@ FINAL_SCHEMA = {
     "Insured_Name": "",
     "Insured_Contact_No": "",
     "Insurance_Company_Name": "",
+    "Previous_Insurance_Company": "",
     "Products": "",
     "Policy_Start_Date": "",
     "Policy_Expiry_Date": "",
     "Sum_Assured_OR_IDV": "",
     "Net_Premium": "",
+    "GST_Amount": "",
+    "Total_Premium": "",
     "Vehicle_Registration_No": "",
     "Business_Or_Retention_Type": "",
     "Created_At": ""
@@ -46,11 +50,9 @@ ALLOWED_PRODUCTS = {
     "Trade Credit", "Travel", "Workmen Compensation"
 }
 
-
 ALLOWED_BUSINESS_TYPES = {
     "Fresh or New", "Renewal", "Rollover"
 }
-
 
 ALLOWED_INSURANCE_COMPANIES = {
     "ABHID", "ACKO", "Aditya Birla Health Insurance Company",
@@ -71,24 +73,15 @@ ALLOWED_INSURANCE_COMPANIES = {
 # =========================
 # GEMINI CONFIG
 # =========================
-MODEL_NAME = "gemini-2.0-flash-lite"
-
 GEMINI_URL = (
     f"https://generativelanguage.googleapis.com/v1beta/"
     f"models/{MODEL_NAME}:generateContent"
 )
 
 
-# =========================
-# GEMINI CALL
-# =========================
 def call_gemini(prompt: str) -> str:
     payload = {
-        "contents": [
-            {
-                "parts": [{"text": prompt}]
-            }
-        ]
+        "contents": [{"parts": [{"text": prompt}]}]
     }
 
     headers = {"Content-Type": "application/json"}
@@ -115,28 +108,12 @@ Extract insurance policy information.
 STRICT RULES:
 - Output ONLY valid JSON
 - No markdown, no explanation
-- Do NOT hallucinate or infer beyond the document
-- Missing or unclear values must be empty strings ""
-- Dates must be in DD/MM/YYYY format only
-- Business_Or_Retention_Type must be ONE allowed value
+- Missing values must be empty ""
+- Dates in DD/MM/YYYY only
 
-PRODUCT SELECTION RULE:
-- Select ONE product strictly from Allowed Products
-- Do NOT invent or generalize
-- "Motor" is INVALID and must NEVER be output
-
-MOTOR CLASSIFICATION:
-- Two Wheeler → "2w"
-- Private Car → "4w"
-- Commercial Vehicle → "GCV"
-
-HEALTH RULE:
-- If product is "Health", Vehicle_Registration_No MUST be empty ""
-
-INSURANCE COMPANY RULE:
-- Select ONE insurer strictly from Allowed Insurance Companies
-- Match EXACTLY as written
-- If no clear match, return ""
+PRODUCT RULES:
+- Select ONE allowed product only
+- "Motor" is INVALID
 
 Allowed Products:
 {sorted(ALLOWED_PRODUCTS)}
@@ -144,22 +121,20 @@ Allowed Products:
 Allowed Insurance Companies:
 {sorted(ALLOWED_INSURANCE_COMPANIES)}
 
-Allowed Business Types:
-{sorted(ALLOWED_BUSINESS_TYPES)}
-
 JSON FORMAT:
 {{
   "Policy_Number": "",
   "Insured_Name": "",
   "Insured_Contact_No": "",
   "Insurance_Company_Name": "",
+  "Previous_Insurance_Company": "",
   "Products": "",
   "Policy_Start_Date": "",
   "Policy_Expiry_Date": "",
   "Sum_Assured_OR_IDV": "",
   "Net_Premium": "",
-  "Vehicle_Registration_No": "",
-  "Business_Or_Retention_Type": ""
+  "GST_Amount": "",
+  "Vehicle_Registration_No": ""
 }}
 
 Document text:
@@ -182,17 +157,46 @@ Document text:
     for key in FINAL_SCHEMA:
         data.setdefault(key, "")
 
-    # Enforce allowed product
+    # Enforce allowed values
     if data["Products"] not in ALLOWED_PRODUCTS:
         data["Products"] = ""
 
-    # Enforce allowed business type
-    if data["Business_Or_Retention_Type"] not in ALLOWED_BUSINESS_TYPES:
-        data["Business_Or_Retention_Type"] = ""
+    if data["Insurance_Company_Name"] not in ALLOWED_INSURANCE_COMPANIES:
+        data["Insurance_Company_Name"] = ""
 
-    # Health insurance must not have vehicle number
+    if data["Previous_Insurance_Company"] not in ALLOWED_INSURANCE_COMPANIES:
+        data["Previous_Insurance_Company"] = ""
+
+    # Health insurance rule
     if data["Products"] == "Health":
         data["Vehicle_Registration_No"] = ""
+
+    # =========================
+    # BUSINESS TYPE LOGIC
+    # =========================
+    prev = data["Previous_Insurance_Company"]
+    curr = data["Insurance_Company_Name"]
+
+    if not prev:
+        data["Business_Or_Retention_Type"] = "Fresh or New"
+    elif prev == curr:
+        data["Business_Or_Retention_Type"] = "Renewal"
+    else:
+        data["Business_Or_Retention_Type"] = "Rollover"
+
+    # =========================
+    # TOTAL PREMIUM CALCULATION
+    # =========================
+    def to_float(value):
+        try:
+            return float(re.sub(r"[^\d.]", "", value))
+        except Exception:
+            return 0.0
+
+    net = to_float(data["Net_Premium"])
+    gst = to_float(data["GST_Amount"])
+
+    data["Total_Premium"] = str(round(net + gst, 2)) if net or gst else ""
 
     data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
 

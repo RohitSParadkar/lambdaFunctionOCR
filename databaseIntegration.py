@@ -6,7 +6,7 @@ from img_xml_text_extractor import extract_text_from_pdf_via_svg_all_pages
 # ==============================
 # CONFIG
 # ==============================
-PDF_FOLDER_PATH = "./data/motorData/Go_Digital"   # folder containing PDFs
+PDF_FOLDER_PATH = "./data/Policy Copy FY 25-26/POSP/Tata AIG/"   # folder containing PDFs
 
 # FUNCTION: Process single PDF
 # ==============================
