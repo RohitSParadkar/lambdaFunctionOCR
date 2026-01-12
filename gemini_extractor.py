@@ -119,6 +119,17 @@ PRODUCT CLASSIFICATION GUIDE:
 - Professional Indemnity / E&O -> "Professional Indemnity"
 - CAR / EAR / IAR -> "Contractors All Risk" / "Erection All Risk" / "Industrial All Risk"
 
+===========================================================
+INSURANCE COMPANY NORMALIZATION RULES:
+If the document contains any FULL FORM or VARIANT name, convert it to the STANDARD SHORT NAME below:
+
+- "Universal Sompo General Insurance Company Limited" → "Sompo"
+- "Universal Sompo General Insurance" → "Sompo"
+
+Always return the standardized name ONLY from the Allowed Insurance Companies list.
+
+===========================================================
+
 Allowed Products List:
 {sorted(ALLOWED_PRODUCTS)}
 
@@ -138,7 +149,7 @@ JSON FORMAT:
   "Policy_Expiry_Date": "",
   "Sum_Assured_OR_IDV": "",
   "Net_Premium": "",
-  "GST_Amount": "",
+  ""Gross_or_Total_Premium": "",
   "Vehicle_Registration_No": ""
 }}
 
@@ -179,18 +190,6 @@ Document text:
         data["Business_Or_Retention_Type"] = "Renewal"
     else:
         data["Business_Or_Retention_Type"] = "Rollover"
-
-    # Numeric formatting for Premiums (Excluding Contact Number to prevent stripping *)
-    def to_float(value):
-        if not value: return 0.0
-        try:
-            return float(re.sub(r"[^\d.]", "", str(value)))
-        except:
-            return 0.0
-
-    net = to_float(data["Net_Premium"])
-    gst = to_float(data["GST_Amount"])
-    data["Gross_or_Total_Premium"] = str(round(net + gst, 2)) if (net or gst) else ""
 
     data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
 

@@ -100,7 +100,7 @@ def process_single_pdf(pdf_path: str) -> dict:
 
         metadata = extract_insurance_metadata(text)
         filtered_metadata = filter_metadata(metadata)
-
+        print("Data Filtered data from pdf",filtered_metadata,"\n")
         if not filtered_metadata:
             raise ValueError("No valid metadata after filtering")
 
@@ -115,7 +115,7 @@ def process_single_pdf(pdf_path: str) -> dict:
         if channel:
             payload["Channel"] = channel
 
-        # ✅ DMS UPLOAD
+        # DMS UPLOAD
         response = upload_document_to_dolphin_dms(
             file_path=pdf_path,
             policy_data=payload
