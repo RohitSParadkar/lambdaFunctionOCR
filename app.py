@@ -1,7 +1,7 @@
 import os
 import shutil
 import streamlit as st
-from main import process_single_pdf, handle_post_processing
+from main import process_single_pdf
 
 # ==============================
 # CONFIG
@@ -35,12 +35,10 @@ sidebar_success = st.sidebar.empty()
 sidebar_failed = st.sidebar.empty()
 
 def update_sidebar(total=0, success=0, failed=0):
-    """Update sidebar metrics dynamically"""
     sidebar_total.metric("Total Files", total)
     sidebar_success.metric("Processed Successfully", success)
     sidebar_failed.metric("Failed / Unprocessed", failed)
 
-# Initialize metrics
 update_sidebar(0, 0, 0)
 
 # ==============================
@@ -54,11 +52,15 @@ start_folder_btn = st.button("▶️ Start Folder Processing")
 # SECTION 2: FILE UPLOAD
 # ==============================
 st.subheader("📤 Upload PDFs From Local Machine")
-uploaded_files = st.file_uploader("Upload PDF files", type=["pdf"], accept_multiple_files=True)
+uploaded_files = st.file_uploader(
+    "Upload PDF files",
+    type=["pdf"],
+    accept_multiple_files=True
+)
 start_upload_btn = st.button("▶️ Start Upload Processing")
 
 # ==============================
-# HELPER: Count PDFs
+# HELPER: COUNT PDFs
 # ==============================
 def count_pdfs(base_path, folders):
     count = 0
@@ -71,13 +73,49 @@ def count_pdfs(base_path, folders):
     return count
 
 # ==============================
+# POST PROCESSING LOGIC (FIXED)
+# ==============================
+def handle_post_processing(pdf_path, result, root_folder):
+    """
+    SUCCESS  -> Process_Files/<SUBFOLDER>/file.pdf
+    FAILURE  -> Unprocess_Files/<SUBFOLDER>/file.pdf
+
+    Only preserves SUBFOLDER name
+    """
+
+    normalized = os.path.normpath(pdf_path)
+    parts = normalized.split(os.sep)
+
+    subfolder = None
+
+    if "Automatic_Preprocess" in parts:
+        idx = parts.index("Automatic_Preprocess")
+        subfolder = parts[idx + 1] if len(parts) > idx + 1 else "Unknown"
+    elif "Manual_Preprocess" in parts:
+        idx = parts.index("Manual_Preprocess")
+        subfolder = parts[idx + 1] if len(parts) > idx + 1 else "Unknown"
+    else:
+        # Uploaded files
+        subfolder = "Uploaded"
+
+    if "error" in result:
+        dest_base = os.path.join(root_folder, UNPROCESSED_FOLDER)
+    else:
+        dest_base = os.path.join(root_folder, PROCESSED_FOLDER)
+
+    dest_dir = os.path.join(dest_base, subfolder)
+    os.makedirs(dest_dir, exist_ok=True)
+
+    dest_path = os.path.join(dest_dir, os.path.basename(pdf_path))
+    shutil.move(pdf_path, dest_path)
+
+# ==============================
 # COMMON PROCESSING FUNCTION
 # ==============================
-def process_with_progress(pdf_paths, top_level):
+def process_with_progress(pdf_paths, root_folder):
     total_files = len(pdf_paths)
     processed = success = failed = 0
 
-    # Initialize sidebar
     update_sidebar(total_files, success, failed)
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -87,7 +125,7 @@ def process_with_progress(pdf_paths, top_level):
         status_text.info(f"🔄 Processing: {file_name}")
 
         result = process_single_pdf(pdf_path)
-        handle_post_processing(pdf_path, result, top_level)
+        handle_post_processing(pdf_path, result, root_folder)
 
         processed += 1
         if "error" in result:
@@ -95,11 +133,9 @@ def process_with_progress(pdf_paths, top_level):
         else:
             success += 1
 
-        # Update progress bar and sidebar dynamically
         progress_bar.progress(processed / total_files)
         update_sidebar(total_files, success, failed)
 
-        # Show result in an expander
         with st.expander(f"📄 Result: {file_name}", expanded=False):
             st.json(result)
 
@@ -122,10 +158,10 @@ if start_folder_btn:
 
     pdf_list = []
     for folder in PROCESS_FOLDERS:
-        top_level = os.path.join(root_folder, folder)
-        if not os.path.exists(top_level):
+        folder_path = os.path.join(root_folder, folder)
+        if not os.path.exists(folder_path):
             continue
-        for root, _, files in os.walk(top_level):
+        for root, _, files in os.walk(folder_path):
             for file in files:
                 if file.lower().endswith(".pdf"):
                     pdf_list.append(os.path.join(root, file))
@@ -148,8 +184,7 @@ if start_upload_btn:
         saved_paths.append(temp_path)
 
     st.success(f"📤 Uploaded PDFs: {len(saved_paths)}")
-    process_with_progress(saved_paths, TEMP_UPLOAD_DIR)
+    process_with_progress(saved_paths, root_folder)
 
-    # Cleanup temp uploads folder
     shutil.rmtree(TEMP_UPLOAD_DIR, ignore_errors=True)
     os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)

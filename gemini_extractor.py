@@ -30,7 +30,7 @@ FINAL_SCHEMA = {
     "Sum_Assured_OR_IDV": "",
     "Net_Premium": "",
     "GST_Amount": "",
-    "Total_Premium": "",
+    "Gross_or_Total_Premium": "",
     "Vehicle_Registration_No": "",
     "Business_Or_Retention_Type": "",
     "Created_At": ""
@@ -190,7 +190,7 @@ Document text:
 
     net = to_float(data["Net_Premium"])
     gst = to_float(data["GST_Amount"])
-    data["Total_Premium"] = str(round(net + gst, 2)) if (net or gst) else ""
+    data["Gross_or_Total_Premium"] = str(round(net + gst, 2)) if (net or gst) else ""
 
     data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
 

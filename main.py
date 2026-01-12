@@ -40,6 +40,7 @@ REQUIRED_FIELDS = [
     "Policy_Expiry_Date",
     "Sum_Assured_OR_IDV",
     "Net_Premium",
+    "Gross_or_Total_Premium",
     "Vehicle_Registration_No",
     "Business_Or_Retention_Type",
 ]
