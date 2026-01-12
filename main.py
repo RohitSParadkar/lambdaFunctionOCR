@@ -5,7 +5,6 @@ import shutil
 from img_xml_text_extractor import extract_text_from_pdf_via_svg_all_pages
 from gemini_extractor import extract_insurance_metadata
 from api_call import upload_document_to_dolphin_dms
-
 # ==============================
 # CONFIG
 # ==============================
@@ -99,6 +98,7 @@ def process_single_pdf(pdf_path: str) -> dict:
             raise ValueError("No text extracted from PDF")
 
         metadata = extract_insurance_metadata(text)
+        print("Raw metadata data from pdf",metadata,"\n")
         filtered_metadata = filter_metadata(metadata)
         print("Data Filtered data from pdf",filtered_metadata,"\n")
         if not filtered_metadata:

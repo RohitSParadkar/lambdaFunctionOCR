@@ -4,6 +4,7 @@ import os
 import requests
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+from token_counter import gemini_token_and_generate
 
 # =========================
 # LOAD ENV (Lambda-safe)
@@ -156,7 +157,7 @@ JSON FORMAT:
 Document text:
 {text}
 """
-
+    token_info = gemini_token_and_generate(prompt)
     raw = call_gemini(prompt).strip()
     raw = raw.replace("```json", "").replace("```", "").strip()
 
@@ -192,5 +193,7 @@ Document text:
         data["Business_Or_Retention_Type"] = "Rollover"
 
     data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
+    data["_token_usage"] = token_info["usage_metadata"]
 
     return data
+
