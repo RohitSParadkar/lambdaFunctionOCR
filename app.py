@@ -154,6 +154,7 @@ def dashboard():
 
         if "error" in result:
             dest_base = os.path.join(root_folder, UNPROCESSED_FOLDER)
+            print("Error Message",result["error"])
         else:
             dest_base = os.path.join(root_folder, PROCESSED_FOLDER)
 

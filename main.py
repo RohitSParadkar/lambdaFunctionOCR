@@ -5,6 +5,7 @@ import shutil
 from img_xml_text_extractor import extract_text_from_pdf_via_svg_all_pages
 from gemini_extractor import extract_insurance_metadata
 from api_call import upload_document_to_dolphin_dms
+
 # ==============================
 # CONFIG
 # ==============================
@@ -27,9 +28,9 @@ CHANNELS = [
 ]
 
 # ==============================
-# METADATA FILTER
+# FIELD DEFINITIONS
 # ==============================
-REQUIRED_FIELDS = [
+MANDATORY_FIELDS = [
     "Policy_Number",
     "Insured_Name",
     "Insured_Contact_No",
@@ -40,39 +41,61 @@ REQUIRED_FIELDS = [
     "Sum_Assured_OR_IDV",
     "Net_Premium",
     "Gross_or_Total_Premium",
-    "Vehicle_Registration_No",
     "Business_Or_Retention_Type",
 ]
-
-def filter_metadata(metadata: dict) -> dict:
-    return {
-        k: metadata.get(k)
-        for k in REQUIRED_FIELDS
-        if metadata.get(k) not in ("", None)
-    }
+OPTIONAL_FIELDS = [
+   "Vehicle_Registration_No"
+]
 
 # ==============================
-# HELPER: Detect Channel (STRICT)
+# METADATA VALIDATION
+# ==============================
+def validate_and_filter_metadata(metadata: dict):
+    """
+    Returns:
+      valid_data: dict
+      missing_mandatory: list
+    """
+    valid_data = {}
+    missing_mandatory = []
+
+    # Validate mandatory fields
+    for field in MANDATORY_FIELDS:
+        value = metadata.get(field)
+        if value in ("", None):
+            missing_mandatory.append(field)
+        else:
+            valid_data[field] = value
+
+    # Collect optional fields
+    for field in OPTIONAL_FIELDS:
+        value = metadata.get(field)
+        if value not in ("", None):
+            valid_data[field] = value
+
+    return valid_data, missing_mandatory
+
+# ==============================
+# CHANNEL DETECTION (STRICT)
 # ==============================
 def detect_channel_from_path(file_path: str):
     normalized_path = file_path.replace("\\", "/").lower()
     for channel in CHANNELS:
         if channel.lower() in normalized_path:
             return channel
-    return None  # IMPORTANT: no "Unknown"
+    return None
 
 # ==============================
-# HELPER: Move File (NO UNKNOWN)
+# MOVE FILE WITH STRUCTURE
 # ==============================
 def move_file_with_structure(src_path, target_root, base_folder, channel):
     rel_path = os.path.relpath(src_path, base_folder)
     rel_parts = rel_path.split(os.sep)
 
-    # Remove channel folder if already present in source
+    # Remove channel folder if already present
     if channel and rel_parts and rel_parts[0].lower() == channel.lower():
         rel_parts = rel_parts[1:]
 
-    # Build destination path
     if channel:
         target_path = os.path.join(target_root, channel, *rel_parts)
     else:
@@ -84,7 +107,7 @@ def move_file_with_structure(src_path, target_root, base_folder, channel):
     print(f"Moved file to: {target_path}")
 
 # ==============================
-# PROCESS SINGLE PDF → DMS
+# PROCESS SINGLE PDF
 # ==============================
 def process_single_pdf(pdf_path: str) -> dict:
     try:
@@ -98,24 +121,26 @@ def process_single_pdf(pdf_path: str) -> dict:
             raise ValueError("No text extracted from PDF")
 
         metadata = extract_insurance_metadata(text)
-        print("Raw metadata data from pdf",metadata,"\n")
-        filtered_metadata = filter_metadata(metadata)
-        print("Data Filtered data from pdf",filtered_metadata,"\n")
-        if not filtered_metadata:
-            raise ValueError("No valid metadata after filtering")
+        print("Raw metadata from PDF:\n", metadata, "\n")
+
+        valid_metadata, missing_mandatory = validate_and_filter_metadata(metadata)
+
+        if missing_mandatory:
+            raise ValueError(
+                f"Mandatory fields missing: {', '.join(missing_mandatory)}"
+            )
 
         channel = detect_channel_from_path(pdf_path)
 
         payload = {
-            **filtered_metadata,
+            **valid_metadata,
             "source_file": os.path.basename(pdf_path)
         }
 
-        # Add channel only if detected
         if channel:
             payload["Channel"] = channel
 
-        # DMS UPLOAD
+        # Upload to DMS
         response = upload_document_to_dolphin_dms(
             file_path=pdf_path,
             policy_data=payload
@@ -123,6 +148,7 @@ def process_single_pdf(pdf_path: str) -> dict:
 
         payload["dms_response"] = response
         payload["channel"] = channel
+
         return payload
 
     except Exception as e:
