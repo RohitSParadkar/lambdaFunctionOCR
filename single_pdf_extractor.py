@@ -5,7 +5,8 @@ import requests
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from token_counter import gemini_token_and_generate
-
+from img_xml_text_extractor import extract_text_from_pdf_via_svg_all_pages
+from extractor import save_full_text_to_file
 # =========================
 # LOAD ENV (Lambda-safe)
 # =========================
@@ -123,7 +124,7 @@ STRICT FIELD RULES:
      • DO NOT include suffixes like "/-", "-/", or any non-numeric characters.
      • Decimal point (.) and (,) are allowed only if present in the document.
      • Example:
-       - "Rs. 13,577/-" → "13,577"
+       - "Rs. 13,577/-" → "13577"
        - "5,00,000/-" → "5,00,000"
 
 ===========================================================
@@ -219,3 +220,27 @@ Document text:
 
     return data
 
+
+
+
+
+# =========================
+# MAIN
+# =========================
+def main():
+    PDF_PATH = "./Folder_Structure/Unprocess_Files/Institutional/2006_I_403967561_00_000.pdf"
+
+    result = extract_text_from_pdf_via_svg_all_pages(PDF_PATH)
+    text = result["full_text"]
+
+    print("Total number of characters in document:", len(text))
+    save_full_text_to_file(text,PDF_PATH)
+    metadata = extract_insurance_metadata(text)
+    print(json.dumps(metadata, ensure_ascii=False, indent=2))
+
+
+# =========================
+# ENTRY POINT
+# =========================
+if __name__ == "__main__":
+    main()

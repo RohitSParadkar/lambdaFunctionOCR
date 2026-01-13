@@ -1,7 +1,8 @@
-/lambdaenv
-/temp_svg
-/data
-/Folder_Structure
+lambdaenv
+temp_svg
+data
+Folder_Structure
+temp_text/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
