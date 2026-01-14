@@ -2,7 +2,7 @@
 import os
 import json
 import shutil
-from insertData import insert_json
+from insertData import insert_data_json
 from gemini_extractor import extract_insurance_metadata 
 from img_xml_text_extractor import extract_text_from_pdf_via_svg_all_pages
 
@@ -125,7 +125,7 @@ def process_selected_folders(base_path: str, folders: list):
 
                     # Insert only successful records
                     if "error" not in result:
-                        insert_json(result)
+                        insert_data_json(result)
 
                     # Move file keeping folder structure relative to top-level folder
                     handle_post_processing(pdf_path, result, top_level_path)

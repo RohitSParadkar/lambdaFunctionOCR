@@ -120,11 +120,13 @@ STRICT FIELD RULES:
    - For Net_Premium, Gross_or_Total_Premium, and Sum_Assured_OR_IDV:
      • Return ONLY numeric values.
      • DO NOT include currency symbols (₹, Rs., INR).
+     • DO NOT include commas (,).
      • DO NOT include suffixes like "/-", "-/", or any non-numeric characters.
-     • Decimal point (.) and (,) are allowed only if present in the document.
+     • Decimal point (.) is allowed only if present in the document.
      • Example:
-       - "Rs. 13,577/-" → "13,577"
-       - "5,00,000/-" → "5,00,000"
+       - "Rs. 13,577/-" → "13577"
+       - "11,506.00" → "11506.00"
+       - "5,00,000/-" → "500000"
 
 ===========================================================
 PRODUCT CLASSIFICATION GUIDE:

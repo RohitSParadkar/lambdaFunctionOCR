@@ -89,22 +89,35 @@ def detect_channel_from_path(file_path: str):
 # MOVE FILE WITH STRUCTURE
 # ==============================
 def move_file_with_structure(src_path, target_root, base_folder, channel):
+    """
+    Rules:
+    - If PDF is directly under base_folder → move directly into target_root
+    - Preserve subfolders only if depth > 1
+    - Channel folder added only once
+    """
+
     rel_path = os.path.relpath(src_path, base_folder)
     rel_parts = rel_path.split(os.sep)
 
-    # Remove channel folder if already present
-    if channel and rel_parts and rel_parts[0].lower() == channel.lower():
-        rel_parts = rel_parts[1:]
+    # Case 1: PDF directly under base folder
+    if len(rel_parts) == 1:
+        target_path = os.path.join(target_root, os.path.basename(src_path))
 
-    if channel:
-        target_path = os.path.join(target_root, channel, *rel_parts)
     else:
-        target_path = os.path.join(target_root, *rel_parts)
+        # Remove channel duplication if already present
+        if channel and rel_parts[0].lower() == channel.lower():
+            rel_parts = rel_parts[1:]
+
+        if channel:
+            target_path = os.path.join(target_root, channel, *rel_parts)
+        else:
+            target_path = os.path.join(target_root, *rel_parts)
 
     os.makedirs(os.path.dirname(target_path), exist_ok=True)
     shutil.move(src_path, target_path)
 
     print(f"Moved file to: {target_path}")
+
 
 # ==============================
 # PROCESS SINGLE PDF
@@ -166,6 +179,7 @@ def handle_post_processing(pdf_path, result, top_level_folder):
 
     if "error" in result:
         target_root = os.path.join(BASE_FOLDER_PATH, UNPROCESSED_FOLDER)
+        print("Error Message:", result["error"])
     else:
         target_root = os.path.join(BASE_FOLDER_PATH, PROCESSED_FOLDER)
 
@@ -190,7 +204,6 @@ def process_selected_folders(base_path, folders):
                     print(f"\nProcessing: {pdf_path}")
                     result = process_single_pdf(pdf_path)
 
-                    print(json.dumps(result, indent=2, ensure_ascii=False))
                     handle_post_processing(pdf_path, result, top_level)
 
 # ==============================

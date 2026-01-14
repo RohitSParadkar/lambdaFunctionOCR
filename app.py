@@ -145,26 +145,37 @@ def dashboard():
         normalized = os.path.normpath(pdf_path)
         parts = normalized.split(os.sep)
 
-        if "Automatic_Preprocess" in parts:
-            subfolder = parts[parts.index("Automatic_Preprocess") + 1]
-        elif "Manual_Preprocess" in parts:
-            subfolder = parts[parts.index("Manual_Preprocess") + 1]
-        else:
-            subfolder = "Unknown"
+        subfolder = None  # default: no subfolder
 
+        if "Automatic_Preprocess" in parts:
+            idx = parts.index("Automatic_Preprocess")
+            if idx + 1 < len(parts) - 1:
+                subfolder = parts[idx + 1]
+
+        elif "Manual_Preprocess" in parts:
+            idx = parts.index("Manual_Preprocess")
+            if idx + 1 < len(parts) - 1:
+                subfolder = parts[idx + 1]
+
+    # Decide destination base
         if "error" in result:
             dest_base = os.path.join(root_folder, UNPROCESSED_FOLDER)
-            print("Error Message",result["error"])
+            print("Error Message:", result["error"])
         else:
             dest_base = os.path.join(root_folder, PROCESSED_FOLDER)
 
-        dest_dir = os.path.join(dest_base, subfolder)
+    # Final destination
+        if subfolder:
+            dest_dir = os.path.join(dest_base, subfolder)
+        else:
+            dest_dir = dest_base  # ✅ directly move to Process_Files / Unprocess_Files
+
         os.makedirs(dest_dir, exist_ok=True)
 
         shutil.move(
-            pdf_path,
-            os.path.join(dest_dir, os.path.basename(pdf_path))
-        )
+        pdf_path,
+        os.path.join(dest_dir, os.path.basename(pdf_path))
+    )
 
     # ==============================
     # PROCESS WITH PROGRESS + ETA

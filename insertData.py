@@ -1,24 +1,42 @@
-import json
 from pymongo import MongoClient
 
-# Connect to local MongoDB
+# Mongo Connection
 client = MongoClient("mongodb://localhost:27017/")
 
-# Database & Collection
+# Database
 db = client["insurance_db"]
-collection = db["policies"]
 
-def insert_json(data):
+# Collections
+POLICY_COLLECTION = db["policies"]
+LOG_COLLECTION = db["policy_logs"]
+
+
+def insert_data_json(data):
     """
-    Insert dict or list of dicts into MongoDB
+    Insert policy metadata into policies collection
     """
     if isinstance(data, dict):
-        result = collection.insert_one(data)
-        print("Inserted ID:", result.inserted_id)
+        result = POLICY_COLLECTION.insert_one(data)
+        print("✅ Policy Inserted ID:", result.inserted_id)
 
     elif isinstance(data, list):
-        result = collection.insert_many(data)
-        print("Inserted documents:", len(result.inserted_ids))
+        result = POLICY_COLLECTION.insert_many(data)
+        print("✅ Policies Inserted:", len(result.inserted_ids))
+
+    else:
+        raise ValueError("Data must be dict or list of dicts")
+
+def insert_log_json(data):
+    """
+    Insert processing logs into policy_logs collection
+    """
+    if isinstance(data, dict):
+        result = LOG_COLLECTION.insert_one(data)
+        print("Log Inserted ID:", result.inserted_id)
+
+    elif isinstance(data, list):
+        result = LOG_COLLECTION.insert_many(data)
+        print(" Logs Inserted:", len(result.inserted_ids))
 
     else:
         raise ValueError("Data must be dict or list of dicts")
