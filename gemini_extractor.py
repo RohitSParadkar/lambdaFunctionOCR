@@ -148,6 +148,25 @@ If the document contains any FULL FORM or VARIANT name, convert it to the STANDA
 
 - "Universal Sompo General Insurance Company Limited" → "Sompo"
 - "Universal Sompo General Insurance" → "Sompo"
+IMPORTANT INSURANCE COMPANY DISAMBIGUATION RULES (STRICT):
+
+- If the document explicitly mentions:
+  • "TATA AIA", "TATA AIA Life", or "TATA AIA Life Insurance"
+    → Return EXACTLY "TATA AIA"
+
+  • "TATA AIG", "TATA AIG General Insurance", or "TATA AIG Insurance"
+    → Return EXACTLY "TATA AIG"
+
+- DO NOT confuse "TATA AIA" with "TATA AIG".
+- DO NOT guess between AIA and AIG.
+- If both words "AIA" and "AIG" appear, choose the one that appears NEAREST to the word "Insurance".
+
+- Product-based validation:
+  • Life, GTL → Prefer "TATA AIA"
+  • Health, Motor, Fire, Marine, PA → Prefer "TATA AIG"
+
+- If the company name cannot be confidently determined:
+  → Leave Insurance_Company_Name EMPTY ("")
 
 Always return the standardized name ONLY from the Allowed Insurance Companies list.
 
