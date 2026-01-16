@@ -17,6 +17,10 @@ MODEL_NAME = os.getenv("MODEL_NAME")
 if not GEMINI_API_KEY:
     raise EnvironmentError("GEMINI_API_KEY not found in environment variables")
 
+if not MODEL_NAME:
+    raise EnvironmentError("MODEL_NAME not found in environment variables")
+
+# =========================
 # FINAL DATABASE SCHEMA
 # =========================
 FINAL_SCHEMA = {
@@ -36,6 +40,9 @@ FINAL_SCHEMA = {
     "Created_At": ""
 }
 
+# =========================
+# ALLOWED VALUES
+# =========================
 ALLOWED_PRODUCTS = {
     "2w", "4w", "Contractors All Risk", "Critical Illness",
     "Cybersecurity", "Directors & Officers", "Erection All Risk",
@@ -69,28 +76,47 @@ GEMINI_URL = (
     f"models/{MODEL_NAME}:generateContent"
 )
 
+# =========================
+# GEMINI API CALL
+# =========================
 def call_gemini(prompt: str) -> str:
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
-    headers = {"Content-Type": "application/json"}
-    
-    response = requests.post(
-        f"{GEMINI_URL}?key={GEMINI_API_KEY}",
-        headers=headers,
-        data=json.dumps(payload),
-        timeout=60 
-    )
-    response.raise_for_status()
-    data = response.json()
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    try:
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}]
+        }
+
+        headers = {"Content-Type": "application/json"}
+
+        response = requests.post(
+            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+            headers=headers,
+            data=json.dumps(payload),
+            timeout=60
+        )
+
+        response.raise_for_status()
+        data = response.json()
+
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+
+    except requests.exceptions.Timeout:
+        raise RuntimeError("Gemini API timeout")
+
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Gemini API request failed: {str(e)}")
+
+    except (KeyError, IndexError):
+        raise RuntimeError("Unexpected Gemini response structure")
 
 # =========================
 # METADATA EXTRACTION
 # =========================
 def extract_insurance_metadata(text: str) -> dict:
-    # UPDATED PROMPT: Added specific "Proposer" detection and emphasized raw text for mobile
-    prompt = f"""
+    try:
+        if not text or not text.strip():
+            raise ValueError("Empty document text")
+
+        prompt = f"""
 Extract insurance policy information from the document text provided below.
 
 STRICT FIELD RULES:
@@ -116,6 +142,7 @@ STRICT FIELD RULES:
    - If only ONE premium value is present in the document:
      • If it includes tax → put it in Gross_or_Total_Premium only.
      • If it excludes tax → put it in Net_Premium only.
+     
 6. Amount Formatting Rules (STRICT):
    - For Net_Premium, Gross_or_Total_Premium, and Sum_Assured_OR_IDV:
      • Return ONLY numeric values.
@@ -200,43 +227,57 @@ JSON FORMAT:
 Document text:
 {text}
 """
-    token_info = gemini_token_and_generate(prompt)
-    raw = call_gemini(prompt).strip()
-    raw = raw.replace("```json", "").replace("```", "").strip()
 
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not match:
-        data = FINAL_SCHEMA.copy()
-    else:
-        try:
-            data = json.loads(match.group())
-        except json.JSONDecodeError:
-            data = FINAL_SCHEMA.copy()
+        # Token tracking
+        token_info = gemini_token_and_generate(prompt)
 
-    # Ensure all keys exist
-    for key in FINAL_SCHEMA:
-        data.setdefault(key, "")
+        # Gemini call
+        raw = call_gemini(prompt)
+        raw = raw.replace("```json", "").replace("```", "").strip()
 
-    # Validation and Product Logic
-    if data["Products"] not in ALLOWED_PRODUCTS:
-        data["Products"] = ""
+        # JSON extraction
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not match:
+            raise ValueError("No JSON found in Gemini response")
 
-    health_related = ["Health", "GMC", "GPA", "GTL", "Life", "Critical Illness", "Super Topup"]
-    if data["Products"] in health_related:
-        data["Vehicle_Registration_No"] = ""
+        data = json.loads(match.group())
 
-    # Business Type Logic
-    prev = data["Previous_Insurance_Company"]
-    curr = data["Insurance_Company_Name"]
-    if not prev:
-        data["Business_Or_Retention_Type"] = "Fresh or New"
-    elif prev == curr:
-        data["Business_Or_Retention_Type"] = "Renewal"
-    else:
-        data["Business_Or_Retention_Type"] = "Rollover"
+        # Ensure schema completeness
+        for key in FINAL_SCHEMA:
+            data.setdefault(key, "")
 
-    data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
-    data["_token_usage"] = token_info["usage_metadata"]
+        # Product validation
+        if data["Products"] not in ALLOWED_PRODUCTS:
+            data["Products"] = ""
 
-    return data
+        # Health-related cleanup
+        health_related = {
+            "Health", "GMC", "GPA", "GTL",
+            "Life", "Critical Illness", "Super Topup"
+        }
 
+        if data["Products"] in health_related:
+            data["Vehicle_Registration_No"] = ""
+
+        # Business Type logic
+        prev = data.get("Previous_Insurance_Company")
+        curr = data.get("Insurance_Company_Name")
+
+        if not prev:
+            data["Business_Or_Retention_Type"] = "Fresh or New"
+        elif prev == curr:
+            data["Business_Or_Retention_Type"] = "Renewal"
+        else:
+            data["Business_Or_Retention_Type"] = "Rollover"
+
+        data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
+        data["_token_usage"] = token_info.get("usage_metadata", {})
+
+        return data
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "stage": "extract_insurance_metadata",
+            "Created_At": datetime.now(timezone.utc).astimezone().isoformat()
+        }

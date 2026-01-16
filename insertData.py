@@ -8,7 +8,6 @@ db = client["insurance_db"]
 
 # Collections
 POLICY_COLLECTION = db["policies"]
-LOG_COLLECTION = db["policy_logs"]
 
 
 def insert_data_json(data):
@@ -17,30 +16,14 @@ def insert_data_json(data):
     """
     if isinstance(data, dict):
         result = POLICY_COLLECTION.insert_one(data)
-        print("✅ Policy Inserted ID:", result.inserted_id)
+        print("Policy Inserted ID:", result.inserted_id)
 
     elif isinstance(data, list):
         result = POLICY_COLLECTION.insert_many(data)
-        print("✅ Policies Inserted:", len(result.inserted_ids))
+        print("Policies Inserted:", len(result.inserted_ids))
 
     else:
         raise ValueError("Data must be dict or list of dicts")
-
-def insert_log_json(data):
-    """
-    Insert processing logs into policy_logs collection
-    """
-    if isinstance(data, dict):
-        result = LOG_COLLECTION.insert_one(data)
-        print("Log Inserted ID:", result.inserted_id)
-
-    elif isinstance(data, list):
-        result = LOG_COLLECTION.insert_many(data)
-        print(" Logs Inserted:", len(result.inserted_ids))
-
-    else:
-        raise ValueError("Data must be dict or list of dicts")
-
 
 # Example JSON
 json_data = {

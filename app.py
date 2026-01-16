@@ -14,7 +14,7 @@ STREAMLIT_USERNAME = os.getenv("STREAMLIT_USERNAME")
 STREAMLIT_PASSWORD = os.getenv("STREAMLIT_PASSWORD")
 
 if not STREAMLIT_USERNAME or not STREAMLIT_PASSWORD:
-    st.error("❌ STREAMLIT_USERNAME or STREAMLIT_PASSWORD not set in .env")
+    st.error("STREAMLIT_USERNAME or STREAMLIT_PASSWORD not set")
     st.stop()
 
 # ==============================
@@ -22,11 +22,7 @@ if not STREAMLIT_USERNAME or not STREAMLIT_PASSWORD:
 # ==============================
 BASE_FOLDER_PATH = "./Folder_Structure"
 
-PROCESS_FOLDERS = [
-    "Automatic_Preprocess",
-    "Manual_Preprocess"
-]
-
+PROCESS_FOLDERS = ["Automatic_Preprocess", "Manual_Preprocess"]
 PROCESSED_FOLDER = "Process_Files"
 UNPROCESSED_FOLDER = "Unprocess_Files"
 
@@ -36,16 +32,13 @@ st.set_page_config(
 )
 
 # ==============================
-# SESSION STATE INIT
+# SESSION STATE
 # ==============================
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
-if "processing_times" not in st.session_state:
-    st.session_state.processing_times = []
+st.session_state.setdefault("authenticated", False)
+st.session_state.setdefault("processing_times", [])
 
 # ==============================
-# LOGIN PAGE
+# LOGIN
 # ==============================
 def login_page():
     st.title("🔐 Login")
@@ -53,221 +46,181 @@ def login_page():
     with st.form("login_form"):
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
-        login_btn = st.form_submit_button("Login")
+        submit = st.form_submit_button("Login")
 
-        if login_btn:
+        if submit:
             if username == STREAMLIT_USERNAME and password == STREAMLIT_PASSWORD:
                 st.session_state.authenticated = True
                 st.success("✅ Login successful")
                 st.rerun()
             else:
-                st.error("❌ Invalid username or password")
+                st.error("❌ Invalid credentials")
 
-# ==============================
-# LOGOUT
-# ==============================
 def logout():
     st.session_state.authenticated = False
+    st.rerun()
 
 # ==============================
 # DASHBOARD
 # ==============================
 def dashboard():
-
     st.title("📄 PDF Insurance Processing System")
-    st.markdown("Folder-based PDF processing with live progress, timing & ETA")
+    st.markdown("Folder-based processing with live progress, timing & ETA")
 
     st.sidebar.button("🚪 Logout", on_click=logout)
 
-    # ==============================
+    # ------------------------------
     # SIDEBAR METRICS
-    # ==============================
-    sidebar_total = st.sidebar.empty()
-    sidebar_success = st.sidebar.empty()
-    sidebar_failed = st.sidebar.empty()
+    # ------------------------------
+    total_ph = st.sidebar.empty()
+    success_ph = st.sidebar.empty()
+    failed_ph = st.sidebar.empty()
 
     def update_sidebar(total=0, success=0, failed=0):
-        sidebar_total.metric("Total Files", total)
-        sidebar_success.metric("Processed Successfully", success)
-        sidebar_failed.metric("Failed / Unprocessed", failed)
+        total_ph.metric("Total Files", total)
+        success_ph.metric("Success", success)
+        failed_ph.metric("Failed", failed)
 
     update_sidebar()
 
-    # ==============================
-    # TIME METRICS (BELOW COUNTS)
-    # ==============================
-    with st.container():
-        col1, col2 = st.columns(2)
-        last_time_ph = col1.empty()
-        avg_time_ph = col2.empty()
+    # ------------------------------
+    # TIME METRICS
+    # ------------------------------
+    col1, col2 = st.columns(2)
+    last_time_ph = col1.empty()
+    avg_time_ph = col2.empty()
 
     def update_time_metrics(last_time=None):
         times = st.session_state.processing_times
-        avg_time = sum(times) / len(times) if times else 0
+        avg = sum(times) / len(times) if times else 0
 
         if last_time is not None:
-            last_time_ph.metric(
-                "⏱️ Last PDF Time (sec)",
-                f"{last_time:.2f}"
-            )
+            last_time_ph.metric("⏱️ Last PDF (sec)", f"{last_time:.2f}")
 
-        avg_time_ph.metric(
-            "📊 Average Time / PDF (sec)",
-            f"{avg_time:.2f}"
-        )
+        avg_time_ph.metric("📊 Avg / PDF (sec)", f"{avg:.2f}")
 
     update_time_metrics()
 
-    # ==============================
+    # ------------------------------
     # FOLDER INPUT
-    # ==============================
+    # ------------------------------
     st.subheader("📁 Process PDFs From Folder")
-    root_folder = st.text_input("Enter Root Folder Path", value=BASE_FOLDER_PATH)
-    start_folder_btn = st.button("▶️ Start Folder Processing")
+    root_folder = st.text_input("Root Folder Path", BASE_FOLDER_PATH)
+    start_btn = st.button("▶️ Start Processing")
 
-    # ==============================
+    # ------------------------------
     # COUNT PDFs
-    # ==============================
-    def count_pdfs(base_path, folders):
+    # ------------------------------
+    def count_pdfs(base_path):
         count = 0
-        for folder in folders:
-            folder_path = os.path.join(base_path, folder)
-            if not os.path.exists(folder_path):
-                continue
-            for _, _, files in os.walk(folder_path):
+        for folder in PROCESS_FOLDERS:
+            path = os.path.join(base_path, folder)
+            for _, _, files in os.walk(path):
                 count += sum(f.lower().endswith(".pdf") for f in files)
         return count
 
-    # ==============================
-    # POST PROCESSING
-    # ==============================
+    # ------------------------------
+    # FILE MOVE (POST PROCESS)
+    # ------------------------------
     def handle_post_processing(pdf_path, result, root_folder):
-        normalized = os.path.normpath(pdf_path)
-        parts = normalized.split(os.sep)
+        dest_root = (
+            PROCESSED_FOLDER
+            if result["status"] == "SUCCESS"
+            else UNPROCESSED_FOLDER
+        )
 
-        subfolder = None  # default: no subfolder
+        channel = result.get("channel")
+        base_dest = os.path.join(root_folder, dest_root)
 
-        if "Automatic_Preprocess" in parts:
-            idx = parts.index("Automatic_Preprocess")
-            if idx + 1 < len(parts) - 1:
-                subfolder = parts[idx + 1]
+        if channel:
+            base_dest = os.path.join(base_dest, channel)
 
-        elif "Manual_Preprocess" in parts:
-            idx = parts.index("Manual_Preprocess")
-            if idx + 1 < len(parts) - 1:
-                subfolder = parts[idx + 1]
-
-    # Decide destination base
-        if "error" in result:
-            dest_base = os.path.join(root_folder, UNPROCESSED_FOLDER)
-            print("Error Message:", result["error"])
-        else:
-            dest_base = os.path.join(root_folder, PROCESSED_FOLDER)
-
-    # Final destination
-        if subfolder:
-            dest_dir = os.path.join(dest_base, subfolder)
-        else:
-            dest_dir = dest_base  # ✅ directly move to Process_Files / Unprocess_Files
-
-        os.makedirs(dest_dir, exist_ok=True)
+        os.makedirs(base_dest, exist_ok=True)
 
         shutil.move(
-        pdf_path,
-        os.path.join(dest_dir, os.path.basename(pdf_path))
-    )
+            pdf_path,
+            os.path.join(base_dest, os.path.basename(pdf_path))
+        )
 
-    # ==============================
-    # PROCESS WITH PROGRESS + ETA
-    # ==============================
-    def process_with_progress(pdf_paths, root_folder):
-        total_files = len(pdf_paths)
+    # ------------------------------
+    # PROCESS WITH PROGRESS
+    # ------------------------------
+    def process_with_progress(pdf_paths):
+        total = len(pdf_paths)
         success = failed = 0
 
         st.session_state.processing_times.clear()
-
-        update_sidebar(total_files, success, failed)
+        update_sidebar(total, success, failed)
 
         progress_bar = st.progress(0)
-        progress_text = st.empty()
-        eta_text = st.empty()
-        status = st.empty()
+        progress_txt = st.empty()
+        eta_txt = st.empty()
+        status_txt = st.empty()
 
-        batch_start_time = time.time()
+        start_time = time.time()
 
-        for i, pdf_path in enumerate(pdf_paths, start=1):
-            file_name = os.path.basename(pdf_path)
-            status.info(f"🔄 Processing: {file_name}")
+        for idx, pdf_path in enumerate(pdf_paths, start=1):
+            name = os.path.basename(pdf_path)
+            status_txt.info(f"🔄 Processing: {name}")
 
-            file_start = time.time()
-
+            t0 = time.time()
             result = process_single_pdf(pdf_path)
+            elapsed = time.time() - t0
 
-            file_time = time.time() - file_start
-            st.session_state.processing_times.append(file_time)
-
+            st.session_state.processing_times.append(elapsed)
             handle_post_processing(pdf_path, result, root_folder)
 
-            if "error" in result:
-                failed += 1
-            else:
+            if result["status"] == "SUCCESS":
                 success += 1
+            else:
+                failed += 1
 
-            # ==============================
-            # PROGRESS UPDATE
-            # ==============================
-            progress = i / total_files
+            progress = idx / total
             progress_bar.progress(progress)
 
-            percent = int(progress * 100)
-            elapsed = time.time() - batch_start_time
-            avg_time = elapsed / i
-            remaining = avg_time * (total_files - i)
+            avg_time = (time.time() - start_time) / idx
+            remaining = avg_time * (total - idx)
 
-            progress_text.markdown(
-                f"**Progress:** {percent}% &nbsp;&nbsp;|&nbsp;&nbsp; "
-                f"**File:** {i} / {total_files}"
+            progress_txt.markdown(
+                f"**Progress:** {int(progress * 100)}% | "
+                f"**File:** {idx}/{total}"
             )
 
-            eta_text.markdown(
-                f"⏳ **ETA Remaining:** {int(remaining)} sec"
-            )
+            eta_txt.markdown(f"⏳ ETA: `{int(remaining)} sec`")
 
-            update_sidebar(total_files, success, failed)
-            update_time_metrics(last_time=file_time)
+            update_sidebar(total, success, failed)
+            update_time_metrics(elapsed)
 
-            with st.expander(f"📄 Result: {file_name}"):
-                st.write(f"⏱️ **Time Taken:** `{file_time:.2f} seconds`")
+            with st.expander(f"📄 Result: {name}"):
+                st.write(f"⏱️ Time Taken: `{elapsed:.2f} sec`")
                 st.json(result)
 
-        status.success("✅ Processing Completed!")
+        status_txt.success("✅ Processing Completed")
 
-    # ==============================
-    # START PROCESS
-    # ==============================
-    if start_folder_btn:
+    # ------------------------------
+    # START BUTTON
+    # ------------------------------
+    if start_btn:
         if not os.path.exists(root_folder):
             st.error("❌ Root folder does not exist")
             st.stop()
 
-        total_files = count_pdfs(root_folder, PROCESS_FOLDERS)
-        if total_files == 0:
-            st.warning("⚠️ No PDF files found")
+        total = count_pdfs(root_folder)
+        if total == 0:
+            st.warning("⚠️ No PDFs found")
             st.stop()
 
-        st.success(f"📂 Total PDFs Found: {total_files}")
+        st.success(f"📂 Total PDFs Found: {total}")
 
-        pdf_list = []
+        pdfs = []
         for folder in PROCESS_FOLDERS:
-            folder_path = os.path.join(root_folder, folder)
-            if not os.path.exists(folder_path):
-                continue
-            for root, _, files in os.walk(folder_path):
-                for file in files:
-                    if file.lower().endswith(".pdf"):
-                        pdf_list.append(os.path.join(root, file))
+            path = os.path.join(root_folder, folder)
+            for root, _, files in os.walk(path):
+                for f in files:
+                    if f.lower().endswith(".pdf"):
+                        pdfs.append(os.path.join(root, f))
 
-        process_with_progress(pdf_list, root_folder)
+        process_with_progress(pdfs)
 
 # ==============================
 # ROUTER
