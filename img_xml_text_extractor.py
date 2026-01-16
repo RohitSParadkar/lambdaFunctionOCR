@@ -5,12 +5,32 @@ from datetime import datetime, timezone
 
 
 # ======================================
+# UTIL: GET PASSWORD FROM FILE NAME
+# ======================================
+def get_password_from_filename(pdf_path: Path) -> str | None:
+    """
+    Example:
+    29054955_02091994.pdf -> password = 02091994
+    """
+    name = pdf_path.stem  # without .pdf
+    parts = name.split("_")
+    return parts[-1] if len(parts) > 1 else None
+
+
+# ======================================
 # PDF → SVG (SINGLE PAGE)
 # ======================================
 def extract_pdf_page_as_svg(pdf_path: str, output_svg_path: str, page_num: int):
     doc = None
     try:
+        pdf_path = Path(pdf_path)
         doc = fitz.open(pdf_path)
+
+        # 🔐 Handle encrypted PDF
+        if doc.is_encrypted:
+            password = get_password_from_filename(pdf_path)
+            if not password or not doc.authenticate(password):
+                raise RuntimeError("Failed to decrypt PDF using filename password")
 
         if page_num >= doc.page_count:
             raise ValueError(f"Page number {page_num} out of range")
@@ -19,7 +39,7 @@ def extract_pdf_page_as_svg(pdf_path: str, output_svg_path: str, page_num: int):
 
         svg_content = page.get_svg_image(
             matrix=fitz.Matrix(1, 1),
-            text_as_path=0  # keep text selectable
+            text_as_path=0
         )
 
         with open(output_svg_path, "w", encoding="utf-8") as f:
@@ -73,22 +93,6 @@ def extract_text_from_pdf_via_svg_all_pages(
     pdf_path: str,
     temp_dir: str = "temp_svg"
 ) -> dict:
-    """
-    SUCCESS RETURN:
-    {
-      "total_pages": int,
-      "pages": {1: "text", 2: "text"},
-      "full_text": "---- PAGE 1 ---- text ---- PAGE 2 ----",
-      "created_at": ISO_DATETIME
-    }
-
-    ERROR RETURN:
-    {
-      "error": "message",
-      "stage": "stage_name",
-      "created_at": ISO_DATETIME
-    }
-    """
 
     try:
         pdf_path = Path(pdf_path)
@@ -102,8 +106,14 @@ def extract_text_from_pdf_via_svg_all_pages(
         temp_dir = Path(temp_dir)
         temp_dir.mkdir(exist_ok=True)
 
-        # Open once to get page count
+        # 🔐 Open PDF & decrypt once
         doc = fitz.open(pdf_path)
+
+        if doc.is_encrypted:
+            password = get_password_from_filename(pdf_path)
+            if not password or not doc.authenticate(password):
+                raise RuntimeError("Failed to decrypt PDF using filename password")
+
         page_count = doc.page_count
         doc.close()
 
@@ -138,17 +148,3 @@ def extract_text_from_pdf_via_svg_all_pages(
             "stage": "extract_text_from_pdf_via_svg_all_pages",
             "created_at": datetime.now(timezone.utc).astimezone().isoformat()
         }
-
-
-# ======================================
-# Example Usage
-# ======================================
-# if __name__ == "__main__":
-#     PDF_PATH = "../data/NivaBupa/35091132202500.pdf"
-
-#     result = extract_text_from_pdf_via_svg_all_pages(PDF_PATH)
-
-#     print(f"\nTotal Pages: {result['total_pages']}\n")
-
-#     print("\n===== FULL TEXT (FOR REGEX) =====\n")
-#     print(result["full_text"])

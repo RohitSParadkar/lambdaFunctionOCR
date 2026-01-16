@@ -50,7 +50,8 @@ ALLOWED_PRODUCTS = {
     "GMC", "GPA", "GTL", "Health", "Home", "Industrial All Risk",
     "Life", "Marine", "OPD", "Others", "PA",
     "Professional Indemnity", "Super Topup", "Surety Bonds",
-    "Trade Credit", "Travel", "Workmen Compensation"
+    "Trade Credit", "Travel", "Workmen Compensation","PCV",
+    "Miscellaneous"
 }
 
 ALLOWED_INSURANCE_COMPANIES = {
@@ -157,6 +158,15 @@ STRICT FIELD RULES:
 
 ===========================================================
 PRODUCT CLASSIFICATION GUIDE:
+PRODUCT CLASSIFICATION GUIDE (STRICT PRIORITY ORDER):
+
+IMPORTANT:
+- If BOTH "Passenger" AND "Commercial" appear → TREAT AS PASSENGER VEHICLE (PCV)
+- Passenger classification ALWAYS OVERRIDES GCV
+
+1. Passenger Carrying Vehicle:
+   - Keywords: Passenger, Taxi, Cab, Auto, Bus, School Bus, Staff Bus, PCCV
+   → "PCV"
 - Private Car / Car / Passenger Vehicle -> "4w"
 - Two Wheeler / Bike / Scooter / Motor Cycle -> "2w"
 - Commercial Vehicle / Truck / GCV / Lorry -> "GCV"
@@ -165,6 +175,7 @@ PRODUCT CLASSIFICATION GUIDE:
 - Personal Accident (Individual) -> "PA"
 - Group Personal Accident -> "GPA"
 - Term Life / Individual Life -> "Life"
+- Passenger Carrying Vehicle /PCCV - > "PCV"
 - Group Term Life -> "GTL"
 - SFSP / Standard Fire / Fire & Perils -> "Fire"
 - Workmen Compensation / WC -> "Workmen Compensation"
@@ -200,6 +211,35 @@ IMPORTANT INSURANCE COMPANY DISAMBIGUATION RULES (STRICT):
 Always return the standardized name ONLY from the Allowed Insurance Companies list.
 
 ===========================================================
+BUSINESS / RETENTION TYPE RULES (STRICT):
+
+You MUST determine Business_Or_Retention_Type directly from the document text.
+
+Allowed values ONLY:
+- "Fresh or New"
+- "Renewal"
+- "Rollover"
+
+Rules:
+1. "Fresh or New":
+   - No previous insurer mentioned
+   - First time insurance
+   - New vehicle / new policy
+   - Keywords: New Business, Fresh Policy, First Policy
+
+2. "Renewal":
+   - Previous insurer is SAME as current insurer
+   - Keywords: Renewal, Renewed with same insurer, Expiring Policy (same company)
+
+3. "Rollover":
+   - Previous insurer is DIFFERENT from current insurer
+   - Keywords: Rollover, Ported, Transferred, Previous Insurance Company mentioned
+
+IMPORTANT:
+- Use DOCUMENT CONTEXT, not assumptions
+- DO NOT infer based on missing data
+- If unsure, choose the MOST LOGICAL option from the text
+===========================================================
 
 Allowed Products List:
 {sorted(ALLOWED_PRODUCTS)}
@@ -221,6 +261,7 @@ JSON FORMAT:
   "Sum_Assured_OR_IDV": "",
   "Net_Premium": "",
   "Gross_or_Total_Premium": "",
+  "Business_Or_Retention_Type":"",
   "Vehicle_Registration_No": ""
 }}
 
@@ -258,17 +299,6 @@ Document text:
 
         if data["Products"] in health_related:
             data["Vehicle_Registration_No"] = ""
-
-        # Business Type logic
-        prev = data.get("Previous_Insurance_Company")
-        curr = data.get("Insurance_Company_Name")
-
-        if not prev:
-            data["Business_Or_Retention_Type"] = "Fresh or New"
-        elif prev == curr:
-            data["Business_Or_Retention_Type"] = "Renewal"
-        else:
-            data["Business_Or_Retention_Type"] = "Rollover"
 
         data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
         data["_token_usage"] = token_info.get("usage_metadata", {})
