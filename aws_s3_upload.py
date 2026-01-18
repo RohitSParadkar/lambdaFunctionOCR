@@ -3,9 +3,14 @@ import os
 import shutil
 from pathlib import Path
 from dotenv import load_dotenv
+import sys
+import io
 
-load_dotenv()
 
+load_dotenv(dotenv_path=r"D:\Projects\OCR\lambdaFunctionOCR\.env")
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 BUCKET_NAME = os.getenv('S3_BUCKET_NAME')
 S3_FOLDER = os.getenv('S3_FOLDER')
 
@@ -34,19 +39,19 @@ def upload_and_manage_files(manual_source_path):
             s3_client.upload_file(str(file_path), BUCKET_NAME, s3_key)
             
             shutil.move(str(file_path), str(success_dir / file_name))
-            print(f"  ✅ Done!")
+            print(f"Done!")
             
         except Exception as e:
-            print(f"  ❌ Error: {e}")
+            print(f"Error: {e}")
             shutil.move(str(file_path), str(failure_dir / file_name))
 
 if __name__ == "__main__":
     # 1. Update this to your ACTUAL local folder path
-    my_source = r"D:\Project\lambadaFunction\Folder_Structure\Automatic_Preprocess" 
+    my_source = r"D:\Projects\OCR\lambdaFunctionOCR\data" 
     
     print("Script started...")
     if os.path.exists(my_source):
         upload_and_manage_files(my_source)
     else:
-        print(f"❌ ERROR: The local folder '{my_source}' was not found.")
+        print(f"ERROR: The local folder '{my_source}' was not found.")
     print("Script finished.")
