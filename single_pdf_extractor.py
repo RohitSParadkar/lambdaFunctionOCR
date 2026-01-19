@@ -228,7 +228,7 @@ Document text:
 # MAIN
 # =========================
 def main():
-    PDF_PATH = "./Folder_Structure/Automatic_Preprocess/Digital POSP/C224903543.pdf"
+    PDF_PATH = "./Folder_Structure/Unprocess_Files/SP_DG_4WAG_SCHEDULEHC_D225472786_D225472786_1758191608260.pdf"
 
     result = extract_text_from_pdf_via_svg_all_pages(PDF_PATH)
     text = result["full_text"]

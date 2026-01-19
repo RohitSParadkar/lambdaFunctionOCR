@@ -128,6 +128,16 @@ STRICT FIELD RULES:
    - Example: If text says "+91 87**43**67", you must return "+91 87**43**67".
 2. Insured_Name: Often labeled as "Proposer Name" or "Name of Insured".
 3. Dates: Use DD/MM/YYYY format only.
+
+   IMPORTANT DATE MAPPING RULE:
+   - "Policy_Expiry_Date" may also be mentioned in the document as:
+     • "Final Premium Due Date"
+     • "Premium Due Date"
+     • "Final Due Date"
+
+   - If "Policy Expiry Date" is NOT explicitly present but
+     "Final Premium Due Date" (or equivalent) is present,
+     THEN extract that date and return it as "Policy_Expiry_Date".
 4. Output: ONLY valid JSON. No markdown (no ```json).
 5. Premium Rules (VERY IMPORTANT):
    - Net_Premium:
@@ -240,6 +250,28 @@ IMPORTANT:
 - DO NOT infer based on missing data
 - If unsure, choose the MOST LOGICAL option from the text
 ===========================================================
+PREVIOUS INSURANCE COMPANY NORMALIZATION (STRICT):
+
+- When extracting "Previous_Insurance_Company", FOLLOW THIS ORDER STRICTLY:
+
+1. FIRST:
+   - Try to normalize the previous insurer name to one of the values
+     in the "Allowed Insurance Companies" list.
+   - If the document contains a full form, abbreviation, or variant
+     that clearly maps to an allowed company, RETURN ONLY the
+     standardized name from the allowed list.
+
+2. ONLY IF NORMALIZATION IS NOT POSSIBLE:
+   - If the previous insurer name does NOT confidently match
+     any value in the Allowed Insurance Companies list,
+     THEN return the insurer name EXACTLY as written in the policy document.
+   - Do NOT invent, guess, shorten, or reformat the name.
+
+IMPORTANT:
+- Do NOT leave "Previous_Insurance_Company" empty if a previous insurer
+  name is present in the document.
+- Do NOT force-fit an incorrect insurer just to match the allowed list.
+- Use exact text fallback only when confident normalization is not possible.
 
 Allowed Products List:
 {sorted(ALLOWED_PRODUCTS)}
@@ -299,9 +331,20 @@ Document text:
 
         if data["Products"] in health_related:
             data["Vehicle_Registration_No"] = ""
+        
+        current_insurer = (data.get("Insurance_Company_Name") or "").strip()
+        previous_insurer = (data.get("Previous_Insurance_Company") or "").strip()
 
+        if previous_insurer:
+            if current_insurer and previous_insurer.lower() != current_insurer.lower():
+                data["Business_Or_Retention_Type"] = "Rollover"
+            else:
+                data["Business_Or_Retention_Type"] = "Renewal"
+        else:
+            data["Business_Or_Retention_Type"] = "Fresh or New"
         data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
         data["_token_usage"] = token_info.get("usage_metadata", {})
+        
 
         return data
 
