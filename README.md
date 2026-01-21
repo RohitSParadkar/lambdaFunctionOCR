@@ -72,3 +72,15 @@ python3 main.py
   "Created_At": ""
 }
  
+
+
+# How to setup the aws cli in 
+- create the user group (refre this link https://youtu.be/InFyI98zM90?si=6CP5rv1ChwKbYZ72)
+-> Provide user access to the AWS Management Console - optional
+-> Local code 
+- Attach permission to that role (Attach policies directly)
+- Store the Access key and Secret access key for future use  
+- pip install awscli
+- aws configure (To set the Access key and Secret access key)
+    -> Default region name [None]
+    -> Default output format [None] 

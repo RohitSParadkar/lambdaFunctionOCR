@@ -17,6 +17,10 @@ MODEL_NAME = os.getenv("MODEL_NAME")
 if not GEMINI_API_KEY:
     raise EnvironmentError("GEMINI_API_KEY not found in environment variables")
 
+if not MODEL_NAME:
+    raise EnvironmentError("MODEL_NAME not found in environment variables")
+
+# =========================
 # FINAL DATABASE SCHEMA
 # =========================
 FINAL_SCHEMA = {
@@ -36,6 +40,9 @@ FINAL_SCHEMA = {
     "Created_At": ""
 }
 
+# =========================
+# ALLOWED VALUES
+# =========================
 ALLOWED_PRODUCTS = {
     "2w", "4w", "Contractors All Risk", "Critical Illness",
     "Cybersecurity", "Directors & Officers", "Erection All Risk",
@@ -43,7 +50,8 @@ ALLOWED_PRODUCTS = {
     "GMC", "GPA", "GTL", "Health", "Home", "Industrial All Risk",
     "Life", "Marine", "OPD", "Others", "PA",
     "Professional Indemnity", "Super Topup", "Surety Bonds",
-    "Trade Credit", "Travel", "Workmen Compensation"
+    "Trade Credit", "Travel", "Workmen Compensation","PCV",
+    "Miscellaneous"
 }
 
 ALLOWED_INSURANCE_COMPANIES = {
@@ -69,28 +77,47 @@ GEMINI_URL = (
     f"models/{MODEL_NAME}:generateContent"
 )
 
+# =========================
+# GEMINI API CALL
+# =========================
 def call_gemini(prompt: str) -> str:
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
-    headers = {"Content-Type": "application/json"}
-    
-    response = requests.post(
-        f"{GEMINI_URL}?key={GEMINI_API_KEY}",
-        headers=headers,
-        data=json.dumps(payload),
-        timeout=60 
-    )
-    response.raise_for_status()
-    data = response.json()
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    try:
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}]
+        }
+
+        headers = {"Content-Type": "application/json"}
+
+        response = requests.post(
+            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+            headers=headers,
+            data=json.dumps(payload),
+            timeout=60
+        )
+
+        response.raise_for_status()
+        data = response.json()
+
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+
+    except requests.exceptions.Timeout:
+        raise RuntimeError("Gemini API timeout")
+
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Gemini API request failed: {str(e)}")
+
+    except (KeyError, IndexError):
+        raise RuntimeError("Unexpected Gemini response structure")
 
 # =========================
 # METADATA EXTRACTION
 # =========================
 def extract_insurance_metadata(text: str) -> dict:
-    # UPDATED PROMPT: Added specific "Proposer" detection and emphasized raw text for mobile
-    prompt = f"""
+    try:
+        if not text or not text.strip():
+            raise ValueError("Empty document text")
+
+        prompt = f"""
 Extract insurance policy information from the document text provided below.
 
 STRICT FIELD RULES:
@@ -101,6 +128,16 @@ STRICT FIELD RULES:
    - Example: If text says "+91 87**43**67", you must return "+91 87**43**67".
 2. Insured_Name: Often labeled as "Proposer Name" or "Name of Insured".
 3. Dates: Use DD/MM/YYYY format only.
+
+   IMPORTANT DATE MAPPING RULE:
+   - "Policy_Expiry_Date" may also be mentioned in the document as:
+     • "Final Premium Due Date"
+     • "Premium Due Date"
+     • "Final Due Date"
+
+   - If "Policy Expiry Date" is NOT explicitly present but
+     "Final Premium Due Date" (or equivalent) is present,
+     THEN extract that date and return it as "Policy_Expiry_Date".
 4. Output: ONLY valid JSON. No markdown (no ```json).
 5. Premium Rules (VERY IMPORTANT):
    - Net_Premium:
@@ -116,6 +153,7 @@ STRICT FIELD RULES:
    - If only ONE premium value is present in the document:
      • If it includes tax → put it in Gross_or_Total_Premium only.
      • If it excludes tax → put it in Net_Premium only.
+     
 6. Amount Formatting Rules (STRICT):
    - For Net_Premium, Gross_or_Total_Premium, and Sum_Assured_OR_IDV:
      • Return ONLY numeric values.
@@ -130,6 +168,15 @@ STRICT FIELD RULES:
 
 ===========================================================
 PRODUCT CLASSIFICATION GUIDE:
+PRODUCT CLASSIFICATION GUIDE (STRICT PRIORITY ORDER):
+
+IMPORTANT:
+- If BOTH "Passenger" AND "Commercial" appear → TREAT AS PASSENGER VEHICLE (PCV)
+- Passenger classification ALWAYS OVERRIDES GCV
+
+1. Passenger Carrying Vehicle:
+   - Keywords: Passenger, Taxi, Cab, Auto, Bus, School Bus, Staff Bus, PCCV
+   → "PCV"
 - Private Car / Car / Passenger Vehicle -> "4w"
 - Two Wheeler / Bike / Scooter / Motor Cycle -> "2w"
 - Commercial Vehicle / Truck / GCV / Lorry -> "GCV"
@@ -138,6 +185,7 @@ PRODUCT CLASSIFICATION GUIDE:
 - Personal Accident (Individual) -> "PA"
 - Group Personal Accident -> "GPA"
 - Term Life / Individual Life -> "Life"
+- Passenger Carrying Vehicle /PCCV - > "PCV"
 - Group Term Life -> "GTL"
 - SFSP / Standard Fire / Fire & Perils -> "Fire"
 - Workmen Compensation / WC -> "Workmen Compensation"
@@ -173,6 +221,57 @@ IMPORTANT INSURANCE COMPANY DISAMBIGUATION RULES (STRICT):
 Always return the standardized name ONLY from the Allowed Insurance Companies list.
 
 ===========================================================
+BUSINESS / RETENTION TYPE RULES (STRICT):
+
+You MUST determine Business_Or_Retention_Type directly from the document text.
+
+Allowed values ONLY:
+- "Fresh or New"
+- "Renewal"
+- "Rollover"
+
+Rules:
+1. "Fresh or New":
+   - No previous insurer mentioned
+   - First time insurance
+   - New vehicle / new policy
+   - Keywords: New Business, Fresh Policy, First Policy
+
+2. "Renewal":
+   - Previous insurer is SAME as current insurer
+   - Keywords: Renewal, Renewed with same insurer, Expiring Policy (same company)
+
+3. "Rollover":
+   - Previous insurer is DIFFERENT from current insurer
+   - Keywords: Rollover, Ported, Transferred, Previous Insurance Company mentioned
+
+IMPORTANT:
+- Use DOCUMENT CONTEXT, not assumptions
+- DO NOT infer based on missing data
+- If unsure, choose the MOST LOGICAL option from the text
+===========================================================
+PREVIOUS INSURANCE COMPANY NORMALIZATION (STRICT):
+
+- When extracting "Previous_Insurance_Company", FOLLOW THIS ORDER STRICTLY:
+
+1. FIRST:
+   - Try to normalize the previous insurer name to one of the values
+     in the "Allowed Insurance Companies" list.
+   - If the document contains a full form, abbreviation, or variant
+     that clearly maps to an allowed company, RETURN ONLY the
+     standardized name from the allowed list.
+
+2. ONLY IF NORMALIZATION IS NOT POSSIBLE:
+   - If the previous insurer name does NOT confidently match
+     any value in the Allowed Insurance Companies list,
+     THEN return the insurer name EXACTLY as written in the policy document.
+   - Do NOT invent, guess, shorten, or reformat the name.
+
+IMPORTANT:
+- Do NOT leave "Previous_Insurance_Company" empty if a previous insurer
+  name is present in the document.
+- Do NOT force-fit an incorrect insurer just to match the allowed list.
+- Use exact text fallback only when confident normalization is not possible.
 
 Allowed Products List:
 {sorted(ALLOWED_PRODUCTS)}
@@ -194,49 +293,64 @@ JSON FORMAT:
   "Sum_Assured_OR_IDV": "",
   "Net_Premium": "",
   "Gross_or_Total_Premium": "",
+  "Business_Or_Retention_Type":"",
   "Vehicle_Registration_No": ""
 }}
 
 Document text:
 {text}
 """
-    token_info = gemini_token_and_generate(prompt)
-    raw = call_gemini(prompt).strip()
-    raw = raw.replace("```json", "").replace("```", "").strip()
 
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not match:
-        data = FINAL_SCHEMA.copy()
-    else:
-        try:
-            data = json.loads(match.group())
-        except json.JSONDecodeError:
-            data = FINAL_SCHEMA.copy()
+        # Token tracking
+        token_info = gemini_token_and_generate(prompt)
 
-    # Ensure all keys exist
-    for key in FINAL_SCHEMA:
-        data.setdefault(key, "")
+        # Gemini call
+        raw = call_gemini(prompt)
+        raw = raw.replace("```json", "").replace("```", "").strip()
 
-    # Validation and Product Logic
-    if data["Products"] not in ALLOWED_PRODUCTS:
-        data["Products"] = ""
+        # JSON extraction
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not match:
+            raise ValueError("No JSON found in Gemini response")
 
-    health_related = ["Health", "GMC", "GPA", "GTL", "Life", "Critical Illness", "Super Topup"]
-    if data["Products"] in health_related:
-        data["Vehicle_Registration_No"] = ""
+        data = json.loads(match.group())
 
-    # Business Type Logic
-    prev = data["Previous_Insurance_Company"]
-    curr = data["Insurance_Company_Name"]
-    if not prev:
-        data["Business_Or_Retention_Type"] = "Fresh or New"
-    elif prev == curr:
-        data["Business_Or_Retention_Type"] = "Renewal"
-    else:
-        data["Business_Or_Retention_Type"] = "Rollover"
+        # Ensure schema completeness
+        for key in FINAL_SCHEMA:
+            data.setdefault(key, "")
 
-    data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
-    data["_token_usage"] = token_info["usage_metadata"]
+        # Product validation
+        if data["Products"] not in ALLOWED_PRODUCTS:
+            data["Products"] = ""
 
-    return data
+        # Health-related cleanup
+        health_related = {
+            "Health", "GMC", "GPA", "GTL",
+            "Life", "Critical Illness", "Super Topup"
+        }
 
+        if data["Products"] in health_related:
+            data["Vehicle_Registration_No"] = ""
+        
+        current_insurer = (data.get("Insurance_Company_Name") or "").strip()
+        previous_insurer = (data.get("Previous_Insurance_Company") or "").strip()
+
+        if previous_insurer:
+            if current_insurer and previous_insurer.lower() != current_insurer.lower():
+                data["Business_Or_Retention_Type"] = "Rollover"
+            else:
+                data["Business_Or_Retention_Type"] = "Renewal"
+        else:
+            data["Business_Or_Retention_Type"] = "Fresh or New"
+        data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
+        data["_token_usage"] = token_info.get("usage_metadata", {})
+        
+
+        return data
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "stage": "extract_insurance_metadata",
+            "Created_At": datetime.now(timezone.utc).astimezone().isoformat()
+        }

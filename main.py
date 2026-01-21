@@ -1,10 +1,11 @@
 import os
-import json
 import shutil
+from datetime import datetime, timezone
 
 from img_xml_text_extractor import extract_text_from_pdf_via_svg_all_pages
 from gemini_extractor import extract_insurance_metadata
 from api_call import upload_document_to_dolphin_dms
+from logger import upsert_final_log
 
 # ==============================
 # CONFIG
@@ -43,45 +44,39 @@ MANDATORY_FIELDS = [
     "Gross_or_Total_Premium",
     "Business_Or_Retention_Type",
 ]
+
 OPTIONAL_FIELDS = [
-   "Vehicle_Registration_No"
+    "Vehicle_Registration_No"
 ]
 
 # ==============================
 # METADATA VALIDATION
 # ==============================
 def validate_and_filter_metadata(metadata: dict):
-    """
-    Returns:
-      valid_data: dict
-      missing_mandatory: list
-    """
     valid_data = {}
-    missing_mandatory = []
+    missing = []
 
-    # Validate mandatory fields
     for field in MANDATORY_FIELDS:
         value = metadata.get(field)
         if value in ("", None):
-            missing_mandatory.append(field)
+            missing.append(field)
         else:
             valid_data[field] = value
 
-    # Collect optional fields
     for field in OPTIONAL_FIELDS:
         value = metadata.get(field)
         if value not in ("", None):
             valid_data[field] = value
 
-    return valid_data, missing_mandatory
+    return valid_data, missing
 
 # ==============================
-# CHANNEL DETECTION (STRICT)
+# CHANNEL DETECTION
 # ==============================
 def detect_channel_from_path(file_path: str):
-    normalized_path = file_path.replace("\\", "/").lower()
+    path = file_path.replace("\\", "/").lower()
     for channel in CHANNELS:
-        if channel.lower() in normalized_path:
+        if channel.lower() in path:
             return channel
     return None
 
@@ -89,87 +84,97 @@ def detect_channel_from_path(file_path: str):
 # MOVE FILE WITH STRUCTURE
 # ==============================
 def move_file_with_structure(src_path, target_root, base_folder, channel):
-    """
-    Rules:
-    - If PDF is directly under base_folder → move directly into target_root
-    - Preserve subfolders only if depth > 1
-    - Channel folder added only once
-    """
-
     rel_path = os.path.relpath(src_path, base_folder)
-    rel_parts = rel_path.split(os.sep)
+    parts = rel_path.split(os.sep)
 
-    # Case 1: PDF directly under base folder
-    if len(rel_parts) == 1:
-        target_path = os.path.join(target_root, os.path.basename(src_path))
+    if channel and parts[0].lower() == channel.lower():
+        parts = parts[1:]
 
-    else:
-        # Remove channel duplication if already present
-        if channel and rel_parts[0].lower() == channel.lower():
-            rel_parts = rel_parts[1:]
-
-        if channel:
-            target_path = os.path.join(target_root, channel, *rel_parts)
-        else:
-            target_path = os.path.join(target_root, *rel_parts)
+    target_path = (
+        os.path.join(target_root, channel, *parts)
+        if channel else
+        os.path.join(target_root, *parts)
+    )
 
     os.makedirs(os.path.dirname(target_path), exist_ok=True)
     shutil.move(src_path, target_path)
 
-    print(f"Moved file to: {target_path}")
-
+    print(f"File moved → {target_path}")
 
 # ==============================
 # PROCESS SINGLE PDF
 # ==============================
 def process_single_pdf(pdf_path: str) -> dict:
+    pdf_name = os.path.basename(pdf_path)
+    channel = detect_channel_from_path(pdf_path)
+
+    gemini_metadata = None  
+
     try:
         if os.path.getsize(pdf_path) == 0:
-            raise ValueError("PDF is empty")
+            raise ValueError("PDF file is empty")
 
+        # PDF → TEXT
         pdf_data = extract_text_from_pdf_via_svg_all_pages(pdf_path)
         text = pdf_data.get("full_text", "")
 
         if not text.strip():
             raise ValueError("No text extracted from PDF")
 
-        metadata = extract_insurance_metadata(text)
-        print("Raw metadata from PDF:\n", metadata, "\n")
+        # TEXT → GEMINI
+        gemini_metadata = extract_insurance_metadata(text)
 
-        valid_metadata, missing_mandatory = validate_and_filter_metadata(metadata)
+        # VALIDATION
+        valid_metadata, missing = validate_and_filter_metadata(gemini_metadata)
 
-        if missing_mandatory:
+        if missing:
             raise ValueError(
-                f"Mandatory fields missing: {', '.join(missing_mandatory)}"
+                f"Missing mandatory fields: {', '.join(missing)}"
             )
 
-        channel = detect_channel_from_path(pdf_path)
-
-        payload = {
-            **valid_metadata,
-            "source_file": os.path.basename(pdf_path)
-        }
-
+        # DMS PAYLOAD
+        payload = {**valid_metadata, "source_file": pdf_name}
         if channel:
             payload["Channel"] = channel
 
-        # Upload to DMS
-        response = upload_document_to_dolphin_dms(
+        dms_response = upload_document_to_dolphin_dms(
             file_path=pdf_path,
             policy_data=payload
         )
 
-        payload["dms_response"] = response
-        payload["channel"] = channel
+        if dms_response.get("status") != "SUCCESS":
+            raise RuntimeError(
+                dms_response.get("error", "DMS upload failed")
+            )
 
-        return payload
+        # SUCCESS LOG
+        upsert_final_log(
+            pdf_name=pdf_name,
+            file_path=pdf_path,
+            channel=channel,
+            rawdata=gemini_metadata,
+            status="SUCCESS",
+            failure_reason=None
+        )
+
+        return {"status": "SUCCESS"}
 
     except Exception as e:
+        # FAILURE LOG (ALWAYS EXECUTES)
+        upsert_final_log(
+            pdf_name=pdf_name,
+            file_path=pdf_path,
+            channel=channel,
+            rawdata=gemini_metadata,   # ← present even when mandatory missing
+            status="FAILED",
+            failure_reason=str(e)
+        )
+
         return {
-            "source_file": os.path.basename(pdf_path),
-            "channel": detect_channel_from_path(pdf_path),
+            "status": "FAILED",
             "error": str(e)
         }
+
 
 # ==============================
 # POST PROCESSING
@@ -177,13 +182,17 @@ def process_single_pdf(pdf_path: str) -> dict:
 def handle_post_processing(pdf_path, result, top_level_folder):
     channel = result.get("channel")
 
-    if "error" in result:
-        target_root = os.path.join(BASE_FOLDER_PATH, UNPROCESSED_FOLDER)
-        print("Error Message:", result["error"])
-    else:
+    if result["status"] == "SUCCESS":
         target_root = os.path.join(BASE_FOLDER_PATH, PROCESSED_FOLDER)
+    else:
+        target_root = os.path.join(BASE_FOLDER_PATH, UNPROCESSED_FOLDER)
 
-    move_file_with_structure(pdf_path, target_root, top_level_folder, channel)
+    move_file_with_structure(
+        src_path=pdf_path,
+        target_root=target_root,
+        base_folder=top_level_folder,
+        channel=channel
+    )
 
 # ==============================
 # WALK & PROCESS
@@ -193,24 +202,22 @@ def process_selected_folders(base_path, folders):
         top_level = os.path.join(base_path, folder)
 
         if not os.path.exists(top_level):
-            print(f"Missing folder: {top_level}")
             continue
 
         for root, _, files in os.walk(top_level):
             for file in files:
                 if file.lower().endswith(".pdf"):
                     pdf_path = os.path.join(root, file)
-
-                    print(f"\nProcessing: {pdf_path}")
                     result = process_single_pdf(pdf_path)
-
                     handle_post_processing(pdf_path, result, top_level)
 
 # ==============================
 # MAIN
 # ==============================
 def main():
+    print("Insurance PDF Processing Started")
     process_selected_folders(BASE_FOLDER_PATH, PROCESS_FOLDERS)
+    print("Processing Completed")
 
 if __name__ == "__main__":
     main()
