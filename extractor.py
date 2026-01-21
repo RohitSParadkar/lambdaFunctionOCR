@@ -96,3 +96,44 @@ def save_full_text_to_file(full_text: str, pdf_path: str, output_dir="temp_text"
         f.write(full_text)
 
     return str(txt_path)
+
+
+# ======================================
+# TEXT → MARKDOWN FILE
+# ======================================
+def save_extracted_text_as_markdown(
+    extraction_result: dict,
+    output_md_path: str
+):
+    """
+    Converts extracted PDF text into a Markdown file.
+    """
+
+    if "error" in extraction_result:
+        raise RuntimeError(f"Cannot create markdown: {extraction_result['error']}")
+
+    lines = []
+
+    # ---- Metadata ----
+    lines.append("# 📄 PDF Extracted Text\n")
+    lines.append(f"- **Total Pages:** {extraction_result['total_pages']}")
+    lines.append(f"- **Created At:** {extraction_result['created_at']}")
+    lines.append("\n---\n")
+
+    # ---- Page-wise Content ----
+    for page_num, page_text in extraction_result["pages"].items():
+        lines.append(f"## Page {page_num}\n")
+
+        if page_text.strip():
+            lines.append(page_text)
+        else:
+            lines.append("_No text found on this page._")
+
+        lines.append("\n---\n")
+
+    # ---- Write Markdown File ----
+    output_md_path = Path(output_md_path)
+    output_md_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_md_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))

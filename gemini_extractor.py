@@ -121,11 +121,15 @@ def extract_insurance_metadata(text: str) -> dict:
 Extract insurance policy information from the document text provided below.
 
 STRICT FIELD RULES:
-1. Insured_Contact_No: This is often labeled as "Proposer Mobile Number", "Mobile No", "Contact No", or "Phone". 
-   - Extract the value EXACTLY as it appears in the text. 
-   - DO NOT remove spaces, plus signs (+), or asterisks (*). 
-   - DO NOT apply any validation or formatting rules. 
-   - Example: If text says "+91 87**43**67", you must return "+91 87**43**67".
+1. Insured_Contact_No: Extract the mobile number of the insured/proposer.
+   Priority:
+   a) If a MASKED number exists (e.g., "xxxxxxxx2301" or "+91 87**43**67"), ALWAYS return this.
+   b) Else, look for labels like "Proposer Mobile Number", "Mobile No", "Contact No", "Phone".
+   - IGNORE any "Partner Mobile Number" or "Partner Contact No".
+   - Extract EXACTLY as it appears in the text.
+   - DO NOT remove spaces, plus signs (+), asterisks (*), or masking.
+   - DO NOT infer or normalize.
+   - Example: "+91 87**43**67" → return exactly "+91 87**43**67".
 2. Insured_Name: Often labeled as "Proposer Name" or "Name of Insured".
 3. Dates: Use DD/MM/YYYY format only.
 
@@ -165,6 +169,23 @@ STRICT FIELD RULES:
        - "Rs. 13,577/-" → "13577"
        - "11,506.00" → "11506.00"
        - "5,00,000/-" → "500000"
+       
+7. SUM ASSURED / IDV EXTRACTION RULES (STRICT):
+
+- Field: Sum_Assured_OR_IDV
+- Look for labels in the document such as:
+  "Sum Assured", "IDV", "Insured Amount", "Coverage Amount", "Policy Coverage"
+- Extract the number EXACTLY corresponding to these labels.
+- DO NOT confuse with Net_Premium or Gross_or_Total_Premium.
+- RETURN ONLY numeric value:
+   • Remove currency symbols (₹, Rs., INR)
+   • Remove commas (,)
+   • Remove suffixes like /-, -/, etc.
+   • Keep decimal point if present
+- Example conversions:
+   • "₹ 5,00,000/-" → "500000"
+   • "Rs. 11,506.00" → "11506.00"
+   • "5,00,000 (IDV)" → "500000"
 
 ===========================================================
 PRODUCT CLASSIFICATION GUIDE:
