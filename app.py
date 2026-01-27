@@ -3,7 +3,7 @@ import shutil
 import time
 import streamlit as st
 from dotenv import load_dotenv
-from main import process_single_pdf
+from main import process_single_pdf,handle_post_processing
 
 # ==============================
 # LOAD ENV
@@ -122,25 +122,25 @@ def dashboard():
     # ------------------------------
     # FILE MOVE (POST PROCESS)
     # ------------------------------
-    def handle_post_processing(pdf_path, result, root_folder):
-        dest_root = (
-            PROCESSED_FOLDER
-            if result["status"] == "SUCCESS"
-            else UNPROCESSED_FOLDER
-        )
+    # def handle_post_processing(pdf_path, result, root_folder):
+    #     dest_root = (
+    #         PROCESSED_FOLDER
+    #         if result["status"] == "SUCCESS"
+    #         else UNPROCESSED_FOLDER
+    #     )
 
-        channel = result.get("channel")
-        base_dest = os.path.join(root_folder, dest_root)
+    #     channel = result.get("channel")
+    #     base_dest = os.path.join(root_folder, dest_root)
 
-        if channel:
-            base_dest = os.path.join(base_dest, channel)
+    #     if channel:
+    #         base_dest = os.path.join(base_dest, channel)
 
-        os.makedirs(base_dest, exist_ok=True)
+    #     os.makedirs(base_dest, exist_ok=True)
 
-        shutil.move(
-            pdf_path,
-            os.path.join(base_dest, os.path.basename(pdf_path))
-        )
+    #     shutil.move(
+    #         pdf_path,
+    #         os.path.join(base_dest, os.path.basename(pdf_path))
+    #     )
 
     # ------------------------------
     # PROCESS WITH PROGRESS

@@ -29,6 +29,7 @@ FINAL_SCHEMA = {
     "Insured_Contact_No": "",
     "Insurance_Company_Name": "",
     "Previous_Insurance_Company": "",
+    "Product_Subtype": "",
     "Products": "",
     "Policy_Start_Date": "",
     "Policy_Expiry_Date": "",
@@ -186,6 +187,49 @@ STRICT FIELD RULES:
    • "₹ 5,00,000/-" → "500000"
    • "Rs. 11,506.00" → "11506.00"
    • "5,00,000 (IDV)" → "500000"
+7. SUM ASSURED / IDV EXTRACTION RULES (VERY STRICT – DO NOT VIOLATE):
+
+- Field: Sum_Assured_OR_IDV
+
+- Extract this value ONLY if the document EXPLICITLY mentions:
+  • "IDV"
+  • "Insured Declared Value"
+  • "Vehicle IDV"
+  • "Sum Assured"
+
+- For MOTOR policies:
+  • IDV MUST be clearly labeled as "IDV" or "Insured Declared Value"
+  • DO NOT infer IDV from coverage, liability, or limits
+
+DO NOT extract Sum_Assured_OR_IDV from:
+  • "Limits of Liability"
+  • "Liability Only"
+  • "Third Party Property Damage"
+  • "Bodily Injury / Death"
+  • "Motor Vehicles Act, 1988"
+  • "Statutory Liability"
+  • "Under Section II"
+  • "PA Cover"
+  • Any general coverage or legal liability section
+
+IMPORTANT:
+- Numbers mentioned under "Limits of Liability" are NOT IDV.
+- Third Party Property Damage amounts are NOT IDV.
+- Personal Accident (PA) cover CSI is NOT IDV.
+
+RETURN RULE:
+- If IDV / Sum Assured is NOT explicitly mentioned as per the allowed labels:
+  → RETURN Sum_Assured_OR_IDV as null (JSON null)
+- DO NOT guess.
+- DO NOT infer.
+- DO NOT pick the largest number.
+==========================================================
+8. Product_Subtype Rules:
+    - It is the Insurance policy name 
+    - Example: 
+        • "Motor Insurance - Private Car Liability Only"
+        • "Auto Secure Two-Wheeler Package Policy"
+        • "Auto Secure - Liability Only Policy "
 
 ===========================================================
 PRODUCT CLASSIFICATION GUIDE:
@@ -253,10 +297,16 @@ Allowed values ONLY:
 
 Rules:
 1. "Fresh or New":
-   - No previous insurer mentioned
    - First time insurance
    - New vehicle / new policy
    - Keywords: New Business, Fresh Policy, First Policy
+   - If Previous Insurance details are explicitly mentioned as:
+       • "N.A."
+       • "NA"
+       • "Not Applicable"
+       • "Previous Policy No. N.A."
+       • "Previous Insurer: N.A."
+     → ALWAYS classify as "Fresh or New"
 
 2. "Renewal":
    - Previous insurer is SAME as current insurer
@@ -267,6 +317,8 @@ Rules:
    - Keywords: Rollover, Ported, Transferred, Previous Insurance Company mentioned
 
 IMPORTANT:
+- "N.A." / "NA" / "Not Applicable" means NO previous insurance
+- DO NOT treat "N.A." as a valid previous insurer
 - Use DOCUMENT CONTEXT, not assumptions
 - DO NOT infer based on missing data
 - If unsure, choose the MOST LOGICAL option from the text
@@ -307,6 +359,7 @@ JSON FORMAT:
   "Insured_Name": "",
   "Insured_Contact_No": "",
   "Insurance_Company_Name": "",
+  "Product_Subtype":"",
   "Previous_Insurance_Company": "",
   "Products": "",
   "Policy_Start_Date": "",
@@ -366,7 +419,6 @@ Document text:
         data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
         data["_token_usage"] = token_info.get("usage_metadata", {})
         
-
         return data
 
     except Exception as e:
