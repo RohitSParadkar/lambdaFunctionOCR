@@ -79,16 +79,14 @@ def resolve_data_path(input_path: str) -> Path:
 
     return data_dir / relative_path
 
-def save_full_text_to_file(full_text: str, pdf_path: str, output_dir="temp_text"):
+def save_full_text_to_file(full_text: str,output_dir="temp_text"):
     """
     Saves full_text to a fixed temp file.
     Overwrites the same file on every run.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
-
-    # Fixed filename per PDF (same file reused)
-    pdf_name = Path(pdf_path).stem
+   
     txt_path = output_dir / f"full_text.txt"
 
     # 'w' mode ALWAYS overwrites the file

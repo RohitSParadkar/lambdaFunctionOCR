@@ -9,7 +9,7 @@ from botocore.exceptions import ClientError
 
 def get_secret():
 
-    secret_name = "JIBL_OCR"
+    secret_name = "JIBL_OCR"  #Gemini_KEY aws name
     region_name = "ap-south-1"
 
     # Create a Secrets Manager client

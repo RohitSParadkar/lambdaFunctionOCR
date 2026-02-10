@@ -3,6 +3,7 @@ import shutil
 from datetime import datetime, timezone
 
 from img_xml_text_extractor import extract_text_from_pdf_via_svg_all_pages
+from extractor import save_full_text_to_file
 from gemini_extractor import extract_insurance_metadata
 from api_call import upload_document_to_dolphin_dms
 from logger import upsert_final_log
@@ -165,6 +166,7 @@ def process_single_pdf(pdf_path: str) -> dict:
         # PDF → TEXT
         pdf_data = extract_text_from_pdf_via_svg_all_pages(pdf_path)
         text = pdf_data.get("full_text", "")
+        save_full_text_to_file(text)
 
         if not text.strip():
             raise ValueError("No text extracted from PDF")
