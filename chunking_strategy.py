@@ -4,24 +4,28 @@ import os
 import requests
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-import json
-from aws_secret_extractor import get_secret
-from token_counter import gemini_token_and_generate
+from token_counter import gemini_token_and_generate,estimate_tokens
 
-load_dotenv()
 # =========================
 # LOAD ENV (Lambda-safe)
 # =========================
-key = get_secret()
-GEMINI_API_KEY = json.loads(key)["GEMINI_API_KEY"]
-# GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+load_dotenv()
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL_NAME = os.getenv("MODEL_NAME")
 
 if not GEMINI_API_KEY:
-    raise EnvironmentError("GEMINI_API_KEY not found in environment variables")
+    raise EnvironmentError("GEMINI_API_KEY not found")
 
 if not MODEL_NAME:
-    raise EnvironmentError("MODEL_NAME not found in environment variables")
+    raise EnvironmentError("MODEL_NAME not found")
+
+# =========================
+# CONSTANTS
+# =========================
+GEMINI_MAX_INPUT_TOKENS = 1000000
+SAFE_INPUT_TOKENS = 9000000
+MAX_WORDS_PER_CHUNK = 1800
 
 # =========================
 # FINAL DATABASE SCHEMA
@@ -54,7 +58,7 @@ ALLOWED_PRODUCTS = {
     "GMC", "GPA", "GTL", "Health", "Home", "Industrial All Risk",
     "Life", "Marine", "OPD", "Others", "PA",
     "Professional Indemnity", "Super Topup", "Surety Bonds",
-    "Trade Credit", "Travel", "Workmen Compensation","PCV",
+    "Trade Credit", "Travel", "Workmen Compensation", "PCV",
     "Miscellaneous"
 }
 
@@ -73,6 +77,10 @@ ALLOWED_INSURANCE_COMPANIES = {
     "United India", "Sompo", "UIGC"
 }
 
+ALLOWED_BUSINESS_TYPES = {
+    "Fresh or New", "Renewal", "Rollover"
+}
+
 # =========================
 # GEMINI CONFIG
 # =========================
@@ -81,46 +89,49 @@ GEMINI_URL = (
     f"models/{MODEL_NAME}:generateContent"
 )
 
+
+def extract_json_safely(text: str) -> dict:
+    try:
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start == -1 or end == -1:
+            return {}
+        return json.loads(text[start:end])
+    except Exception:
+        return {}
 # =========================
 # GEMINI API CALL
 # =========================
 def call_gemini(prompt: str) -> str:
-    try:
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}]
-        }
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    headers = {"Content-Type": "application/json"}
 
-        headers = {"Content-Type": "application/json"}
+    response = requests.post(
+        f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+        headers=headers,
+        data=json.dumps(payload),
+        timeout=60
+    )
 
-        response = requests.post(
-            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
-            headers=headers,
-            data=json.dumps(payload),
-            timeout=60
-        )
-
-        response.raise_for_status()
-        data = response.json()
-
-        return data["candidates"][0]["content"]["parts"][0]["text"]
-
-    except requests.exceptions.Timeout:
-        raise RuntimeError("Gemini API timeout")
-
-    except requests.exceptions.RequestException as e:
-        raise RuntimeError(f"Gemini API request failed: {str(e)}")
-
-    except (KeyError, IndexError):
-        raise RuntimeError("Unexpected Gemini response structure")
+    response.raise_for_status()
+    data = response.json()
+    return data["candidates"][0]["content"]["parts"][0]["text"]
 
 # =========================
-# METADATA EXTRACTION
+# TEXT CHUNKING (WORDS)
 # =========================
-def extract_insurance_metadata(text: str) -> dict:
-    try:
-        if not text or not text.strip():
-            raise ValueError("Empty document text")
+def split_text_into_chunks(text: str, max_words: int):
+    words = text.split()
+    return [
+        " ".join(words[i:i + max_words])
+        for i in range(0, len(words), max_words)
+    ]
 
+# =========================
+# SINGLE CHUNK EXTRACTION
+# =========================
+def extract_from_single_chunk(text_chunk: str) -> dict:
+    try:
         prompt = f"""
 Extract insurance policy information from the document text provided below.
 
@@ -375,53 +386,99 @@ JSON FORMAT:
 }}
 
 Document text:
-{text}
+{text_chunk}
 """
 
-        # Token tracking
         token_info = gemini_token_and_generate(prompt)
-
-        # Gemini call
         raw = call_gemini(prompt)
+        print("Rawdata:",raw)
         raw = raw.replace("```json", "").replace("```", "").strip()
 
-        # JSON extraction
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        match = extract_json_safely(raw)
         if not match:
-            raise ValueError("No JSON found in Gemini response")
+            return {}
 
         data = json.loads(match.group())
+        data["_token_usage"] = token_info.get("usage_metadata", {})
+        return data
 
-        # Ensure schema completeness
+    except Exception:
+        return {}
+
+# =========================
+# MERGE RESULTS
+# =========================
+def merge_extracted_results(results: list) -> dict:
+    merged = {k: "" for k in FINAL_SCHEMA}
+
+    for result in results:
         for key in FINAL_SCHEMA:
-            data.setdefault(key, "")
+            value = result.get(key)
+            if value in ("", None, "null"):
+                continue
+            if merged[key] in ("", None, "null"):
+                merged[key] = value
 
-        # Product validation
-        if data["Products"] not in ALLOWED_PRODUCTS:
-            data["Products"] = ""
+    return merged
 
-        # Health-related cleanup
-        health_related = {
+# =========================
+# STRICT RULE ENFORCEMENT
+# =========================
+def enforce_strict_rule_compliance(data: dict) -> dict:
+    if data.get("Products") not in ALLOWED_PRODUCTS:
+        data["Products"] = ""
+
+    if data.get("Insurance_Company_Name") not in ALLOWED_INSURANCE_COMPANIES:
+        data["Insurance_Company_Name"] = ""
+
+    if data.get("Business_Or_Retention_Type") not in ALLOWED_BUSINESS_TYPES:
+        data["Business_Or_Retention_Type"] = ""
+
+    return data
+
+# =========================
+# MAIN ORCHESTRATOR
+# =========================
+def extract_insurance_chunk_metadata(text: str) -> dict:
+    try:
+        if not text or not text.strip():
+            raise ValueError("Empty document text")
+
+        # 🔑 CONDITIONAL STRATEGY
+        estimated_tokens = estimate_tokens(text)
+
+        if estimated_tokens < SAFE_INPUT_TOKENS:
+            # ---- Single shot (NO chunking)
+            result = extract_from_single_chunk(text)
+            if not result or all(v in ("", None, "null") for v in result.values()):
+                raise ValueError("No extractable data")
+            data = result
+        else:
+            # ---- Chunking ONLY when token limit exceeded
+            chunks = split_text_into_chunks(text, len(text)/4)
+            partial_results = []
+
+            for chunk in chunks:
+                r = extract_from_single_chunk(chunk)
+                if r:
+                    partial_results.append(r)
+
+            if not partial_results:
+                raise ValueError("No extractable data after chunking")
+
+            data = merge_extracted_results(partial_results)
+
+        # 🔐 Enforce rule compliance
+        data = enforce_strict_rule_compliance(data)
+
+        # Health cleanup
+        if data.get("Products") in {
             "Health", "GMC", "GPA", "GTL",
             "Life", "Critical Illness", "Super Topup"
-        }
-
-        if data["Products"] in health_related:
+        }:
             data["Vehicle_Registration_No"] = ""
-        
-        current_insurer = (data.get("Insurance_Company_Name") or "").strip()
-        previous_insurer = (data.get("Previous_Insurance_Company") or "").strip()
 
-        if previous_insurer:
-            if current_insurer and previous_insurer.lower() != current_insurer.lower():
-                data["Business_Or_Retention_Type"] = "Rollover"
-            else:
-                data["Business_Or_Retention_Type"] = "Renewal"
-        else:
-            data["Business_Or_Retention_Type"] = "Fresh or New"
         data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
-        data["_token_usage"] = token_info.get("usage_metadata", {})
-        
         return data
 
     except Exception as e:
