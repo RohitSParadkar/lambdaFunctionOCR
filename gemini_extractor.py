@@ -84,7 +84,7 @@ GEMINI_URL = (
 # =========================
 # GEMINI API CALL
 # =========================
-def call_gemini(prompt: str) -> str:
+def call_gemini(prompt: str) -> dict:
     try:
         payload = {
             "contents": [{"parts": [{"text": prompt}]}]
@@ -102,7 +102,18 @@ def call_gemini(prompt: str) -> str:
         response.raise_for_status()
         data = response.json()
 
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        # Extract response text safely
+        response_text = data["candidates"][0]["content"]["parts"][0]["text"]
+
+        # Extract usage metadata safely
+        usage_metadata = data.get("usageMetadata", {})
+
+        return {
+            "response_text": response_text,
+            "usage_metadata": usage_metadata,
+            "model_version": data.get("modelVersion"),
+            "response_id": data.get("responseId")
+        }
 
     except requests.exceptions.Timeout:
         raise RuntimeError("Gemini API timeout")
@@ -112,6 +123,7 @@ def call_gemini(prompt: str) -> str:
 
     except (KeyError, IndexError):
         raise RuntimeError("Unexpected Gemini response structure")
+
 
 # =========================
 # METADATA EXTRACTION
@@ -378,12 +390,16 @@ Document text:
 {text}
 """
 
-        # Token tracking
-        token_info = gemini_token_and_generate(prompt)
-
         # Gemini call
-        raw = call_gemini(prompt)
+        result = call_gemini(prompt)
+
+        # Full API response
+        data = result
+
+        # Extract model response text
+        raw = result.get("response_text", "")
         raw = raw.replace("```json", "").replace("```", "").strip()
+        print("raw:", raw)
 
         # JSON extraction
         match = re.search(r"\{.*\}", raw, re.DOTALL)
@@ -420,7 +436,7 @@ Document text:
         else:
             data["Business_Or_Retention_Type"] = "Fresh or New"
         data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
-        data["_token_usage"] = token_info.get("usage_metadata", {})
+        data["_token_usage"] = result.get("usage_metadata", {})
         
         return data
 
