@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import json
 from aws_secret_extractor import get_secret
 from token_counter import gemini_token_and_generate
+from overridingRules import override_pccv_3w,override_previous_insurer
 
 load_dotenv()
 # =========================
@@ -255,7 +256,7 @@ IMPORTANT:
 - Passenger classification ALWAYS OVERRIDES GCV
 
 1. Passenger Carrying Vehicle:
-   - Keywords: Passenger, Taxi, Cab, Auto, Bus, School Bus, Staff Bus, PCCV
+   - Keywords: Passenger, Taxi, Cab, Auto, Bus, School Bus, Staff Bus, PCCV ,PCCV-3 wheelers-carrying passengers-capacity
    → "PCV"
 - Private Car / Car / Passenger Vehicle -> "4w"
 - Two Wheeler / Bike / Scooter / Motor Cycle -> "2w"
@@ -399,8 +400,6 @@ Document text:
         # Extract model response text
         raw = result.get("response_text", "")
         raw = raw.replace("```json", "").replace("```", "").strip()
-        print("raw:", raw)
-
         # JSON extraction
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         if not match:
@@ -425,6 +424,7 @@ Document text:
         if data["Products"] in health_related:
             data["Vehicle_Registration_No"] = ""
         
+        data = override_previous_insurer(data)
         current_insurer = (data.get("Insurance_Company_Name") or "").strip()
         previous_insurer = (data.get("Previous_Insurance_Company") or "").strip()
 
@@ -438,6 +438,7 @@ Document text:
         data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
         data["_token_usage"] = result.get("usage_metadata", {})
         
+        data = override_pccv_3w(data, text)
         return data
 
     except Exception as e:
