@@ -1,3 +1,4 @@
+import re
 THREE_WHEELER_KEYWORDS = [
     "auto rickshaw", "autorickshaw",
 ]
@@ -6,6 +7,9 @@ PASSENGER_KEYWORDS = [
     "passenger carrying", "pccv", "passenger vehicle",
 ]
 
+NA_VARIANTS = {
+    "na", "n.a", "n.a.", "n/a", "nil", "none", "not applicable", "not available","UNKNOWN","Jio Insurance Broking Ltd","Jio Insurance"
+}
 # =============================================================================
 # CANONICAL KEY → LIST OF SHORTFORMS / ALIASES
 # Fill in the values as needed — keys are from ALLOWED_INSURANCE_COMPANIES
@@ -36,13 +40,13 @@ INSURER_SHORTFORM_MAP = {
     "Manipal Cigna"                          : [],
     "NATIONAL"                               : [],
     "National Insurance"                     : [],
-    "New India"                              : [],
+    "New India"                              : ["THE NEW INDIA ASSURANCE COMPANY LTD."],
     "Niva Bupa"                              : ["Niva Bupa Health Insurance Company Limited","Niva Bupa Health Insurance"],
     "ORIENTAL"                               : [],
     "Oriental Insurance"                     : [],
     "Reliance General"                       : [],
     "Reliance GI"                            : [],
-    "Royal Sundaram"                         : ["Royal Sundaram General Insurance Co. Limited"],
+    "Royal Sundaram"                         : ["Royal Sundaram General Insurance Co. Limited","ROYALSUNDARAMGENERALINSURANCECO.LIMITED"],
     "SBI General"                            : [],
     "Shriram General"                        : [],
     "Shriram Life"                           : [],
@@ -55,26 +59,44 @@ INSURER_SHORTFORM_MAP = {
 }
 
 
+# OVERRIDE FUNCTION
+# =============================================================================
 def override_previous_insurer(data: dict) -> dict:
     """
-    Searches each alias list (values) in INSURER_SHORTFORM_MAP.
-    If Previous_Insurance_Company is found in any alias list
-      → overrides it with that list's key (canonical name).
-    If not found
-      → returns data unchanged.
+    Step 1 — NA check:
+        If Previous_Insurance_Company is NA / N.A / nil / etc.
+          → clear Previous_Insurance_Company to ""
+          → set Business_Or_Retention_Type = "Fresh or New"
+          → return immediately
+
+    Step 2 — Alias lookup:
+        Search each alias list (values) in INSURER_SHORTFORM_MAP.
+        If Previous_Insurance_Company found in any alias list
+          → override with that list's key (canonical name)
+        If not found
+          → return data unchanged
 
     Args:
-        data : parsed output dict (must contain "Previous_Insurance_Company")
+        data : parsed output dict
 
     Returns:
-        data dict with Previous_Insurance_Company resolved to canonical name
-        if a match was found, otherwise unchanged.
+        data dict with corrections applied
     """
     previous = (data.get("Previous_Insurance_Company") or "").strip()
 
     if not previous:
         return data
 
+    # Step 1: NA check
+    previous_clean = re.sub(r'[^a-zA-Z]', '', previous).lower()
+
+    na_clean = {re.sub(r'[^a-zA-Z]', '', v).lower() for v in NA_VARIANTS}
+
+    if previous_clean in na_clean:
+        data["Previous_Insurance_Company"] = ""
+        data["Business_Or_Retention_Type"] = "Fresh or New"
+        return data
+    # Step 2: Alias lookup — find value, return key
     previous_lower = previous.lower()
 
     for canonical, aliases in INSURER_SHORTFORM_MAP.items():

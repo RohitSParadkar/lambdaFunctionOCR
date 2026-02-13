@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 import json
 from aws_secret_extractor import get_secret
-from token_counter import gemini_token_and_generate
 from overridingRules import override_pccv_3w,override_previous_insurer
 
 load_dotenv()
@@ -436,7 +435,9 @@ Document text:
         else:
             data["Business_Or_Retention_Type"] = "Fresh or New"
         data["Created_At"] = datetime.now(timezone.utc).astimezone().isoformat()
-        data["_token_usage"] = result.get("usage_metadata", {})
+        data["Text_Length"] = len(text)
+        data["Prompt_Length"] = len(prompt)
+        data["Token_Usage"] = result.get("usage_metadata", {})
         
         data = override_pccv_3w(data, text)
         return data

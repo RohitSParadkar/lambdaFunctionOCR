@@ -142,7 +142,7 @@ def normalize_liability_only_idv(metadata: dict) -> dict:
 
     if (
         isinstance(product_subtype, str)
-        and "liability only policy" in product_subtype.lower()
+        and "liability only" in product_subtype.lower()
         and sum_assured in ("", None)
     ):
         metadata["Sum_Assured_OR_IDV"] = str(0)
