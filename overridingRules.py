@@ -19,7 +19,7 @@ INSURER_SHORTFORM_MAP = {
     "ACKO"                                   : [],
     "Aditya Birla Health Insurance Company"  : [],
     "Aditya Birla Sun Life Insurance Company": [],
-    "Bajaj Allianz"                          : [],
+    "Bajaj Allianz"                          : ["Bajaj Allianz General Insurance Co Ltd."],
     "BALIC"                                  : [],
     "Birla"                                  : [],
     "Care Health"                            : ["Care Health Insurance Limited"],

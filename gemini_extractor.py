@@ -70,7 +70,7 @@ ALLOWED_INSURANCE_COMPANIES = {
     "Oriental Insurance", "Reliance General", "Reliance GI",
     "Royal Sundaram", "SBI General", "Shriram General",
     "Shriram Life", "Star Health", "TATA AIA", "TATA AIG",
-    "United India", "Sompo", "UIGC"
+    "United India", "Sompo", "UIGC","Zuno General Insurance"
 }
 
 # =========================
@@ -163,7 +163,15 @@ STRICT FIELD RULES:
    - Net_Premium:
      • This is the BASE premium amount.
      • It MUST EXCLUDE all taxes such as GST, CGST, SGST, IGST, Cess, or any other charges.
-     • If the document shows labels like "Net Premium", "Basic Premium", or "Premium (Excl. Tax)", extract this value here.
+     • If the document shows labels like:
+       - "Net Premium", 
+       - "Basic Premium"
+       - "Premium (Excl. Tax)"
+       - "TOTAL PACKAGE PREMIUM"
+       extract this value here.
+     • "TOTAL PACKAGE PREMIUM" MUST always be treated as Net_Premium 
+       unless the document clearly shows taxes included within it.
+
 
    - Gross_or_Total_Premium:
      • This is the FINAL payable premium amount.
@@ -440,6 +448,7 @@ Document text:
         data["Token_Usage"] = result.get("usage_metadata", {})
         
         data = override_pccv_3w(data, text)
+        print("extracted data",data)
         return data
 
     except Exception as e:

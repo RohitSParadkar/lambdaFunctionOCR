@@ -1,7 +1,7 @@
 import os
 import shutil
 from datetime import datetime, timezone
-
+from extract_text_pymupdf import extract_text_full_pdf
 from img_xml_text_extractor import extract_text_from_pdf_via_svg_all_pages
 from extractor import save_full_text_to_file
 from gemini_extractor import extract_insurance_metadata
@@ -164,9 +164,14 @@ def process_single_pdf(pdf_path: str) -> dict:
             raise ValueError("PDF file is empty")
 
         # PDF → TEXT
-        pdf_data = extract_text_from_pdf_via_svg_all_pages(pdf_path)
-        text = pdf_data.get("full_text", "")
+        # pdf_data = extract_text_from_pdf_via_svg_all_pages(pdf_path)
+        # text = pdf_data.get("full_text", "")
+        # save_full_text_to_file(text)
+
+        pdf_data = extract_text_full_pdf(pdf_path)
+        text = pdf_data["full_text"]
         save_full_text_to_file(text)
+        
 
         if not text.strip():
             raise ValueError("No text extracted from PDF")
